@@ -194,7 +194,7 @@ func (this *ConcurrentMap) IsEmpty() bool {
 	// probably common enough to bother tracking.
 	if mcsum != 0 {
 		for i := 0; i < len(segments); i++ {
-			if segments[i].count != 0 || mc[i] != segments[i].modCount {
+			if atomic.LoadInt32(&segments[i].count) != 0 || mc[i] != atomic.LoadInt32(&segments[i].modCount) {
 				return false
 			}
 		}
@@ -466,7 +466,7 @@ type Segment struct {
 	/**
 	 * The per-segment table.
 	 */
-	table []*Entry
+	table unsafe.Pointer //point to []*Entry
 
 	/**
 	 * The load factor for the hash table.  Even though this value
@@ -480,7 +480,7 @@ type Segment struct {
 }
 
 func (this *Segment) rehash() {
-	oldTable := this.table
+	oldTable := *(*[]*Entry)(this.table)
 	oldCapacity := len(oldTable)
 	if oldCapacity >= MAXIMUM_CAPACITY {
 		return
@@ -501,7 +501,7 @@ func (this *Segment) rehash() {
 	 */
 
 	newTable := make([]*Entry, oldCapacity<<1)
-	this.threshold = int32(float32(len(newTable)) * this.loadFactor)
+	atomic.StoreInt32(&this.threshold, int32(float32(len(newTable))*this.loadFactor))
 	sizeMask := uint32(len(newTable) - 1)
 	for i := 0; i < oldCapacity; i++ {
 		// We need to guarantee that any existing reads of old Map can
@@ -547,7 +547,7 @@ func (this *Segment) rehash() {
 			}
 		}
 	}
-	this.table = newTable
+	this.table = unsafe.Pointer(&newTable)
 }
 
 /**
@@ -556,14 +556,14 @@ func (this *Segment) rehash() {
  */
 func (this *Segment) setTable(newTable []*Entry) {
 	this.threshold = (int32)(float32(len(newTable)) * this.loadFactor)
-	this.table = newTable
+	this.table = unsafe.Pointer(&newTable)
 }
 
 /**
  * Returns properly casted first entry of bin for given hash.
  */
 func (this *Segment) getFirst(hash uint32) *Entry {
-	tab := this.table
+	tab := *(*[]*Entry)(atomic.LoadPointer(&this.table))
 	return tab[hash&uint32(len(tab)-1)]
 }
 
@@ -654,7 +654,7 @@ func (this *Segment) put(key interface{}, hash uint32, value interface{}, onlyIf
 	}
 	c++
 
-	tab := this.table
+	tab := *(*[]*Entry)(this.table)
 	index := hash & uint32(len(tab)-1)
 	first := tab[index]
 	e := first
@@ -684,7 +684,7 @@ func (this *Segment) remove(key interface{}, hash uint32, value interface{}) (ol
 	defer this.lock.Unlock()
 
 	c := this.count - 1
-	tab := this.table
+	tab := *(*[]*Entry)(this.table)
 	index := hash & uint32(len(tab)-1)
 	first := tab[index]
 	e := first
@@ -717,7 +717,7 @@ func (this *Segment) clear() {
 		this.lock.Lock()
 		defer this.lock.Unlock()
 
-		tab := this.table
+		tab := *(*[]*Entry)(this.table)
 		for i := 0; i < len(tab); i++ {
 			tab[i] = nil
 		}
@@ -729,7 +729,9 @@ func (this *Segment) clear() {
 func newSegment(initialCapacity int, lf float32) (s *Segment) {
 	s = new(Segment)
 	s.loadFactor = lf
-	s.table = make([]*Entry, initialCapacity)
+	table := make([]*Entry, initialCapacity)
+	s.table = unsafe.Pointer(&table)
+	s.lock = new(sync.Mutex)
 	return
 }
 
@@ -740,71 +742,74 @@ func newSegment(initialCapacity int, lf float32) (s *Segment) {
  * that otherwise encounter collisions for hashCodes that do not
  * differ in lower or upper bits.
  */
-func hash(h uint64) uint32 {
-	// Spread bits to regularize both segment and index locations,
-	// using variant of single-word Wang/Jenkins hash.
-	h += (h << 15) ^ 0xffffcd7d
-	h ^= (h >> 10)
-	h += (h << 3)
-	h ^= (h >> 6)
-	h += (h << 2) + (h << 14)
-	return uint32(h ^ (h >> 16))
+func hash(h uint32) uint32 {
+	//// Spread bits to regularize both segment and index locations,
+	//// using variant of single-word Wang/Jenkins hash.
+	//h += (h << 15) ^ 0xffffcd7d
+	//h ^= (h >> 10)
+	//h += (h << 3)
+	//h ^= (h >> 6)
+	//h += (h << 2) + (h << 14)
+	//return uint32(h ^ (h >> 16))
+
+	//Now all hashcode is created by FNVa, so will not porr quality hash functions
+	return h
 }
 
-func hashVal(val interface{}) (hash uint64) {
-	h := fnv.New64a()
+func hashVal(val interface{}) (hash uint32) {
+	h := fnv.New32a()
 	switch v := val.(type) {
 	case bool:
 		h.Write((*((*[1]byte)(unsafe.Pointer(&v))))[:])
-		hash = h.Sum64()
+		hash = h.Sum32()
 	case int:
 		h.Write((*((*[intSize]byte)(unsafe.Pointer(&v))))[:])
-		hash = h.Sum64()
+		hash = h.Sum32()
 	case int8:
 		h.Write((*((*[1]byte)(unsafe.Pointer(&v))))[:])
-		hash = h.Sum64()
+		hash = h.Sum32()
 	case int16:
 		h.Write((*((*[2]byte)(unsafe.Pointer(&v))))[:])
-		hash = h.Sum64()
+		hash = h.Sum32()
 	case int32:
 		h.Write((*((*[4]byte)(unsafe.Pointer(&v))))[:])
-		hash = h.Sum64()
+		hash = h.Sum32()
 	case int64:
 		h.Write((*((*[8]byte)(unsafe.Pointer(&v))))[:])
-		hash = h.Sum64()
+		hash = h.Sum32()
 	case uint:
 		h.Write((*((*[1]byte)(unsafe.Pointer(&v))))[:])
-		hash = h.Sum64()
+		hash = h.Sum32()
 	case uint8:
 		h.Write((*((*[intSize]byte)(unsafe.Pointer(&v))))[:])
-		hash = h.Sum64()
+		hash = h.Sum32()
 	case uint16:
 		h.Write((*((*[2]byte)(unsafe.Pointer(&v))))[:])
-		hash = h.Sum64()
+		hash = h.Sum32()
 	case uint32:
 		h.Write((*((*[4]byte)(unsafe.Pointer(&v))))[:])
-		hash = h.Sum64()
+		hash = h.Sum32()
 	case uint64:
 		h.Write((*((*[8]byte)(unsafe.Pointer(&v))))[:])
-		hash = h.Sum64()
+		hash = h.Sum32()
 	case uintptr:
 		h.Write((*((*[intSize]byte)(unsafe.Pointer(&v))))[:])
-		hash = h.Sum64()
+		hash = h.Sum32()
 	case float32:
 		h.Write((*((*[4]byte)(unsafe.Pointer(&v))))[:])
-		hash = h.Sum64()
+		hash = h.Sum32()
 	case float64:
 		h.Write((*((*[8]byte)(unsafe.Pointer(&v))))[:])
-		hash = h.Sum64()
+		hash = h.Sum32()
 	case complex64:
 		h.Write((*((*[8]byte)(unsafe.Pointer(&v))))[:])
-		hash = h.Sum64()
+		hash = h.Sum32()
 	case complex128:
 		h.Write((*((*[128]byte)(unsafe.Pointer(&v))))[:])
-		hash = h.Sum64()
+		hash = h.Sum32()
 	case string:
 		h.Write([]byte(v))
-		hash = h.Sum64()
+		hash = h.Sum32()
 	default:
 		//array, struct, map, channel, interface, pointer
 		//don't support slice, function
