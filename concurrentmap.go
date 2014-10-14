@@ -33,7 +33,7 @@ const (
 	 */
 	MAX_SEGMENTS int = 1 << 16 // slightly conservative
 
-	/**
+	/** 
 	 * Number of unsynchronized retries in size and containsValue
 	 * methods before resorting to locking. This is used to avoid
 	 * unbounded retries if tables undergo continuous modification
