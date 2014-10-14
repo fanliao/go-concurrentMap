@@ -2,9 +2,12 @@ package main
 
 import (
 	"errors"
+	"hash/fnv"
 	"math"
+	//"reflect"
 	"sync"
 	"sync/atomic"
+	"unsafe"
 )
 
 const (
@@ -47,6 +50,7 @@ const (
 	 * which would make it impossible to obtain an accurate result.
 	 */
 	RETRIES_BEFORE_LOCK int = 2
+	intSize                 = unsafe.Sizeof(1)
 )
 
 type ConcurrentMap struct {
@@ -736,7 +740,7 @@ func newSegment(initialCapacity int, lf float32) (s *Segment) {
  * that otherwise encounter collisions for hashCodes that do not
  * differ in lower or upper bits.
  */
-func hash(h uint32) uint32 {
+func hash(h uint64) uint32 {
 	// Spread bits to regularize both segment and index locations,
 	// using variant of single-word Wang/Jenkins hash.
 	h += (h << 15) ^ 0xffffcd7d
@@ -744,9 +748,87 @@ func hash(h uint32) uint32 {
 	h += (h << 3)
 	h ^= (h >> 6)
 	h += (h << 2) + (h << 14)
-	return h ^ (h >> 16)
+	return uint32(h ^ (h >> 16))
 }
 
-func hashVal(v interface{}) uint32 {
-	panic(errors.New("outstanding item!"))
+func hashVal(val interface{}) (hash uint64) {
+	h := fnv.New64a()
+	switch v := val.(type) {
+	case bool:
+		h.Write((*((*[1]byte)(unsafe.Pointer(&v))))[:])
+		hash = h.Sum64()
+	case int:
+		h.Write((*((*[intSize]byte)(unsafe.Pointer(&v))))[:])
+		hash = h.Sum64()
+	case int8:
+		h.Write((*((*[1]byte)(unsafe.Pointer(&v))))[:])
+		hash = h.Sum64()
+	case int16:
+		h.Write((*((*[2]byte)(unsafe.Pointer(&v))))[:])
+		hash = h.Sum64()
+	case int32:
+		h.Write((*((*[4]byte)(unsafe.Pointer(&v))))[:])
+		hash = h.Sum64()
+	case int64:
+		h.Write((*((*[8]byte)(unsafe.Pointer(&v))))[:])
+		hash = h.Sum64()
+	case uint:
+		h.Write((*((*[1]byte)(unsafe.Pointer(&v))))[:])
+		hash = h.Sum64()
+	case uint8:
+		h.Write((*((*[intSize]byte)(unsafe.Pointer(&v))))[:])
+		hash = h.Sum64()
+	case uint16:
+		h.Write((*((*[2]byte)(unsafe.Pointer(&v))))[:])
+		hash = h.Sum64()
+	case uint32:
+		h.Write((*((*[4]byte)(unsafe.Pointer(&v))))[:])
+		hash = h.Sum64()
+	case uint64:
+		h.Write((*((*[8]byte)(unsafe.Pointer(&v))))[:])
+		hash = h.Sum64()
+	case uintptr:
+		h.Write((*((*[intSize]byte)(unsafe.Pointer(&v))))[:])
+		hash = h.Sum64()
+	case float32:
+		h.Write((*((*[4]byte)(unsafe.Pointer(&v))))[:])
+		hash = h.Sum64()
+	case float64:
+		h.Write((*((*[8]byte)(unsafe.Pointer(&v))))[:])
+		hash = h.Sum64()
+	case complex64:
+		h.Write((*((*[8]byte)(unsafe.Pointer(&v))))[:])
+		hash = h.Sum64()
+	case complex128:
+		h.Write((*((*[128]byte)(unsafe.Pointer(&v))))[:])
+		hash = h.Sum64()
+	case string:
+		h.Write([]byte(v))
+		hash = h.Sum64()
+	default:
+		//array, struct, map, channel, interface, pointer
+		//don't support slice, function
+		panic(errors.New("uncomplete"))
+	}
+	return
 }
+
+//package main
+
+//import(
+//	"fmt"
+//	"unsafe"
+//)
+
+//func main(){
+//	var f64 float64 = 99999999.999
+//	var f32 float32 = 999991.1
+//	var r rune = 'a'
+//	b2 := 0x12345678
+//	fmt.Println(*((*uint64)(unsafe.Pointer(&f32))), uint64(*((*uint32)(unsafe.Pointer(&f32)))))
+//	fmt.Println(*((*uint32)(unsafe.Pointer(&f64))), *((*uint64)(unsafe.Pointer(&f64))), uint64(r))
+//  //*((*[32]byte)(unsafe.Pointer(&b2)))这个指针转换是否不安全，b2只有4个字节，后面的28个字节貌似不安全？
+//	fmt.Println(uint32(b2), *((*uint64)(unsafe.Pointer(&b2))), *((*[32]byte)(unsafe.Pointer(&b2))), *((*[4]byte)(unsafe.Pointer(&b2))))
+//	fmt.Println(0x12, 0x34, 0x56, 0x78)
+//	fmt.Println("Hello World")
+//}
