@@ -989,6 +989,14 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V>
         return segmentFor(hash).replace(key, hash, value);
     }
 
+	
+	
+	
+	
+	
+	
+	
+	
     /**
      * Removes all of the mappings from this map.
      */
@@ -1001,7 +1009,13 @@ public class ConcurrentHashMap<K, V> extends AbstractMap<K, V>
      * Returns a {@link Set} view of the keys contained in this map.
      * The set is backed by the map, so changes to the map are
      * reflected in the set, and vice-versa.  The set supports element
-     * removal, which removes the corresponding mapping from this map,
+     * removal, which 
+	 
+	 
+	 
+	 
+	 
+	 s the corresponding mapping from this map,
      * via the <tt>Iterator.remove</tt>, <tt>Set.remove</tt>,
      * <tt>removeAll</tt>, <tt>retainAll</tt>, and <tt>clear</tt>
      * operations.  It does not support the <tt>add</tt> or

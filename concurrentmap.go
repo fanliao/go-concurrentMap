@@ -1,10 +1,8 @@
-package main
+package concurrent
 
 import (
 	"errors"
-	"hash/fnv"
 	"math"
-	//"reflect"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -50,7 +48,11 @@ const (
 	 * which would make it impossible to obtain an accurate result.
 	 */
 	RETRIES_BEFORE_LOCK int = 2
-	intSize                 = unsafe.Sizeof(1)
+)
+
+var (
+	NilKeyError   error = errors.New("Nil key error")
+	NilValueError error = errors.New("Nil value error")
 )
 
 type ConcurrentMap struct {
@@ -264,9 +266,13 @@ func (this *ConcurrentMap) Size() int32 {
  *
  * @throws NullPointerException if the specified key is nil
  */
-func (this *ConcurrentMap) Get(key interface{}) interface{} {
-	hash := hash(hashVal(key))
-	return this.segmentFor(hash).get(key, hash)
+func (this *ConcurrentMap) Get(key interface{}) (value interface{}, err error) {
+	if isNil(key) {
+		return nil, NilKeyError
+	}
+	hash := hash2(hashi(key))
+	value = this.segmentFor(hash).get(key, hash)
+	return
 }
 
 /**
@@ -278,9 +284,13 @@ func (this *ConcurrentMap) Get(key interface{}) interface{} {
  *         <tt>equals</tt> method; <tt>false</tt> otherwise.
  * @throws NullPointerException if the specified key is nil
  */
-func (this *ConcurrentMap) ContainsKey(key interface{}) bool {
-	hash := hash(hashVal(key))
-	return this.segmentFor(hash).containsKey(key, hash)
+func (this *ConcurrentMap) ContainsKey(key interface{}) (found bool, err error) {
+	if isNil(key) {
+		return false, NilKeyError
+	}
+	hash := hash2(hashi(key))
+	found = this.segmentFor(hash).containsKey(key, hash)
+	return
 }
 
 /**
@@ -296,12 +306,16 @@ func (this *ConcurrentMap) ContainsKey(key interface{}) bool {
  *         <tt>nil</tt> if there was no mapping for <tt>key</tt>
  * @throws NullPointerException if the specified key or value is nil
  */
-func (this *ConcurrentMap) Put(key interface{}, value interface{}) interface{} {
-	if value == nil {
-		panic(errors.New("NullPointerException"))
+func (this *ConcurrentMap) Put(key interface{}, value interface{}) (previous interface{}, err error) {
+	if isNil(key) {
+		return nil, NilKeyError
 	}
-	hash := hash(hashVal(key))
-	return this.segmentFor(hash).put(key, hash, value, false)
+	if isNil(value) {
+		return nil, NilValueError
+	}
+	hash := hash2(hashi(key))
+	previous = this.segmentFor(hash).put(key, hash, value, false)
+	return
 }
 
 /**
@@ -311,12 +325,16 @@ func (this *ConcurrentMap) Put(key interface{}, value interface{}) interface{} {
  *         or <tt>nil</tt> if there was no mapping for the key
  * @throws NullPointerException if the specified key or value is nil
  */
-func (this *ConcurrentMap) PutIfAbsent(key interface{}, value interface{}) interface{} {
-	if value == nil {
-		panic(errors.New("NullPointerException"))
+func (this *ConcurrentMap) PutIfAbsent(key interface{}, value interface{}) (previous interface{}, err error) {
+	if isNil(key) {
+		return nil, NilKeyError
 	}
-	hash := hash(hashVal(key))
-	return this.segmentFor(hash).put(key, hash, value, false)
+	if isNil(value) {
+		return nil, NilValueError
+	}
+	hash := hash2(hashi(key))
+	previous = this.segmentFor(hash).put(key, hash, value, false)
+	return
 }
 
 /**
@@ -326,10 +344,14 @@ func (this *ConcurrentMap) PutIfAbsent(key interface{}, value interface{}) inter
  *
  * @param m mappings to be stored in this map
  */
-func (this *ConcurrentMap) PutAll(m map[interface{}]interface{}) {
+func (this *ConcurrentMap) PutAll(m map[interface{}]interface{}) (err error) {
+	if isNil(m) {
+		err = errors.New("Cannot copy nil map")
+	}
 	for k, v := range m {
 		this.Put(k, v)
 	}
+	return
 }
 
 /**
@@ -341,9 +363,13 @@ func (this *ConcurrentMap) PutAll(m map[interface{}]interface{}) {
  *         <tt>nil</tt> if there was no mapping for <tt>key</tt>
  * @throws NullPointerException if the specified key is nil
  */
-func (this *ConcurrentMap) Remove(key interface{}) interface{} {
-	hash := hash(hashVal(key))
-	return this.segmentFor(hash).remove(key, hash, nil)
+func (this *ConcurrentMap) Remove(key interface{}) (previous interface{}, err error) {
+	if isNil(key) {
+		return nil, NilKeyError
+	}
+	hash := hash2(hashi(key))
+	previous = this.segmentFor(hash).remove(key, hash, nil)
+	return
 }
 
 /**
@@ -351,12 +377,16 @@ func (this *ConcurrentMap) Remove(key interface{}) interface{} {
  *
  * @throws NullPointerException if the specified key is nil
  */
-func (this *ConcurrentMap) RemoveKV(key interface{}, value interface{}) bool {
-	hash := hash(hashVal(key))
-	if value == nil {
-		return false
+func (this *ConcurrentMap) RemoveKV(key interface{}, value interface{}) (ok bool, err error) {
+	if isNil(key) {
+		return false, NilKeyError
 	}
-	return this.segmentFor(hash).remove(key, hash, value) != nil
+	if isNil(value) {
+		return false, NilValueError
+	}
+	hash := hash2(hashi(key))
+	ok = this.segmentFor(hash).remove(key, hash, value) != nil
+	return
 }
 
 /**
@@ -364,12 +394,16 @@ func (this *ConcurrentMap) RemoveKV(key interface{}, value interface{}) bool {
  *
  * @throws NullPointerException if any of the arguments are nil
  */
-func (this *ConcurrentMap) ReplaceWithOld(key interface{}, oldValue interface{}, newValue interface{}) interface{} {
-	if oldValue == nil || newValue == nil {
-		panic(errors.New("NullPointerException"))
+func (this *ConcurrentMap) ReplaceWithOld(key interface{}, oldValue interface{}, newValue interface{}) (previous interface{}, err error) {
+	if isNil(key) {
+		return nil, NilKeyError
 	}
-	hash := hash(hashVal(key))
-	return this.segmentFor(hash).replaceWithOld(key, hash, oldValue, newValue)
+	if isNil(oldValue) || isNil(newValue) {
+		return nil, NilValueError
+	}
+	hash := hash2(hashi(key))
+	previous = this.segmentFor(hash).replaceWithOld(key, hash, oldValue, newValue)
+	return
 }
 
 /**
@@ -379,12 +413,16 @@ func (this *ConcurrentMap) ReplaceWithOld(key interface{}, oldValue interface{},
  *         or <tt>nil</tt> if there was no mapping for the key
  * @throws NullPointerException if the specified key or value is nil
  */
-func (this *ConcurrentMap) Replace(key interface{}, value interface{}) interface{} {
-	if value == nil {
-		panic(errors.New("NullPointerException"))
+func (this *ConcurrentMap) Replace(key interface{}, value interface{}) (previous interface{}, err error) {
+	if isNil(key) {
+		return nil, NilKeyError
 	}
-	hash := hash(hashVal(key))
-	return this.segmentFor(hash).replace(key, hash, value)
+	if isNil(value) {
+		return nil, NilValueError
+	}
+	hash := hash2(hashi(key))
+	previous = this.segmentFor(hash).replace(key, hash, value)
+	return
 }
 
 /**
@@ -557,6 +595,10 @@ func (this *Segment) rehash() {
 func (this *Segment) setTable(newTable []*Entry) {
 	this.threshold = (int32)(float32(len(newTable)) * this.loadFactor)
 	this.table = unsafe.Pointer(&newTable)
+}
+
+func (this *Segment) loadTable() (table []*Entry) {
+	return *(*[]*Entry)(atomic.LoadPointer(&this.table))
 }
 
 /**
@@ -742,7 +784,7 @@ func newSegment(initialCapacity int, lf float32) (s *Segment) {
  * that otherwise encounter collisions for hashCodes that do not
  * differ in lower or upper bits.
  */
-func hash(h uint32) uint32 {
+func hash2(h uint32) uint32 {
 	//// Spread bits to regularize both segment and index locations,
 	//// using variant of single-word Wang/Jenkins hash.
 	//h += (h << 15) ^ 0xffffcd7d
@@ -756,84 +798,75 @@ func hash(h uint32) uint32 {
 	return h
 }
 
-func hashVal(val interface{}) (hash uint32) {
-	h := fnv.New32a()
-	switch v := val.(type) {
-	case bool:
-		h.Write((*((*[1]byte)(unsafe.Pointer(&v))))[:])
-		hash = h.Sum32()
-	case int:
-		h.Write((*((*[intSize]byte)(unsafe.Pointer(&v))))[:])
-		hash = h.Sum32()
-	case int8:
-		h.Write((*((*[1]byte)(unsafe.Pointer(&v))))[:])
-		hash = h.Sum32()
-	case int16:
-		h.Write((*((*[2]byte)(unsafe.Pointer(&v))))[:])
-		hash = h.Sum32()
-	case int32:
-		h.Write((*((*[4]byte)(unsafe.Pointer(&v))))[:])
-		hash = h.Sum32()
-	case int64:
-		h.Write((*((*[8]byte)(unsafe.Pointer(&v))))[:])
-		hash = h.Sum32()
-	case uint:
-		h.Write((*((*[1]byte)(unsafe.Pointer(&v))))[:])
-		hash = h.Sum32()
-	case uint8:
-		h.Write((*((*[intSize]byte)(unsafe.Pointer(&v))))[:])
-		hash = h.Sum32()
-	case uint16:
-		h.Write((*((*[2]byte)(unsafe.Pointer(&v))))[:])
-		hash = h.Sum32()
-	case uint32:
-		h.Write((*((*[4]byte)(unsafe.Pointer(&v))))[:])
-		hash = h.Sum32()
-	case uint64:
-		h.Write((*((*[8]byte)(unsafe.Pointer(&v))))[:])
-		hash = h.Sum32()
-	case uintptr:
-		h.Write((*((*[intSize]byte)(unsafe.Pointer(&v))))[:])
-		hash = h.Sum32()
-	case float32:
-		h.Write((*((*[4]byte)(unsafe.Pointer(&v))))[:])
-		hash = h.Sum32()
-	case float64:
-		h.Write((*((*[8]byte)(unsafe.Pointer(&v))))[:])
-		hash = h.Sum32()
-	case complex64:
-		h.Write((*((*[8]byte)(unsafe.Pointer(&v))))[:])
-		hash = h.Sum32()
-	case complex128:
-		h.Write((*((*[128]byte)(unsafe.Pointer(&v))))[:])
-		hash = h.Sum32()
-	case string:
-		h.Write([]byte(v))
-		hash = h.Sum32()
-	default:
-		//array, struct, map, channel, interface, pointer
-		//don't support slice, function
-		panic(errors.New("uncomplete"))
-	}
-	return
+/* ---------------- Iterator Support -------------- */
+
+type MapIterator struct {
+	nextSegmentIndex int
+	nextTableIndex   int
+	currentTable     []*Entry
+	nextEntry        *Entry
+	lastReturned     *Entry
+	cm               *ConcurrentMap
 }
 
-//package main
+func (this *MapIterator) advance() {
+	if this.nextEntry != nil {
+		this.nextEntry = this.nextEntry.next
+		if this.nextEntry != nil {
+			return
+		}
+	}
 
-//import(
-//	"fmt"
-//	"unsafe"
-//)
+	for this.nextTableIndex >= 0 {
+		this.nextEntry = this.currentTable[this.nextTableIndex]
+		this.nextTableIndex--
+		if this.nextEntry != nil {
+			return
+		}
+	}
 
-//func main(){
-//	var f64 float64 = 99999999.999
-//	var f32 float32 = 999991.1
-//	var r rune = 'a'
-//	b2 := 0x12345678
-//	fmt.Println(*((*uint64)(unsafe.Pointer(&f32))), uint64(*((*uint32)(unsafe.Pointer(&f32)))))
-//	fmt.Println(*((*uint32)(unsafe.Pointer(&f64))), *((*uint64)(unsafe.Pointer(&f64))), uint64(r))
-//  //*((*[32]byte)(unsafe.Pointer(&b2)))这个指针转换是否不安全，b2只有4个字节，后面的28个字节貌似不安全？
-//	fmt.Println(uint32(b2), *((*uint64)(unsafe.Pointer(&b2))), *((*[32]byte)(unsafe.Pointer(&b2))), *((*[4]byte)(unsafe.Pointer(&b2))))
-//	fmt.Println(0x12, 0x34, 0x56, 0x78)
-//	fmt.Println("Hello World")
-//}
+	for this.nextSegmentIndex >= 0 {
+		seg := this.cm.segments[this.nextSegmentIndex]
+		this.nextSegmentIndex--
+		if seg.count != 0 {
+			this.currentTable = seg.loadTable()
+			for j := len(this.currentTable) - 1; j >= 0; j-- {
+				this.nextEntry = this.currentTable[j]
+				if this.nextEntry != nil {
+					this.nextTableIndex = j - 1
+					return
+				}
+			}
+		}
+	}
+}
+
+func (this *MapIterator) HasNext() bool {
+	return this.nextEntry != nil
+}
+
+func (this *MapIterator) NextEntry() *Entry {
+	if this.nextEntry == nil {
+		panic(errors.New("NoSuchElementException"))
+	}
+	this.lastReturned = this.nextEntry
+	this.advance()
+	return this.lastReturned
+}
+
+func (this *MapIterator) Remove() {
+	if this.lastReturned == nil {
+		panic("IllegalStateException")
+	}
+	this.cm.Remove(this.lastReturned.key)
+	this.lastReturned = nil
+}
+
+func NewHashIterator(cm *ConcurrentMap) *MapIterator {
+	hi := MapIterator{}
+	hi.nextSegmentIndex = len(cm.segments) - 1
+	hi.nextTableIndex = -1
+	hi.cm = cm
+	hi.advance()
+	return &hi
+}
