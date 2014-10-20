@@ -71,10 +71,6 @@ type ConcurrentMap struct {
 	 * The segments, each of which is a specialized hash table
 	 */
 	segments []*Segment
-
-	keySet   []interface{}
-	entrySet []*Entry
-	values   []interface{}
 }
 
 /**
@@ -333,7 +329,7 @@ func (this *ConcurrentMap) PutIfAbsent(key interface{}, value interface{}) (prev
 		return nil, NilValueError
 	}
 	hash := hash2(hashi(key))
-	previous = this.segmentFor(hash).put(key, hash, value, false)
+	previous = this.segmentFor(hash).put(key, hash, value, true)
 	return
 }
 
@@ -377,7 +373,7 @@ func (this *ConcurrentMap) Remove(key interface{}) (previous interface{}, err er
  *
  * @throws NullPointerException if the specified key is nil
  */
-func (this *ConcurrentMap) RemoveKV(key interface{}, value interface{}) (ok bool, err error) {
+func (this *ConcurrentMap) RemoveEntry(key interface{}, value interface{}) (ok bool, err error) {
 	if isNil(key) {
 		return false, NilKeyError
 	}
@@ -394,15 +390,15 @@ func (this *ConcurrentMap) RemoveKV(key interface{}, value interface{}) (ok bool
  *
  * @throws NullPointerException if any of the arguments are nil
  */
-func (this *ConcurrentMap) ReplaceWithOld(key interface{}, oldValue interface{}, newValue interface{}) (previous interface{}, err error) {
+func (this *ConcurrentMap) GetAndReplace(key interface{}, oldValue interface{}, newValue interface{}) (ok bool, err error) {
 	if isNil(key) {
-		return nil, NilKeyError
+		return false, NilKeyError
 	}
 	if isNil(oldValue) || isNil(newValue) {
-		return nil, NilValueError
+		return false, NilValueError
 	}
 	hash := hash2(hashi(key))
-	previous = this.segmentFor(hash).replaceWithOld(key, hash, oldValue, newValue)
+	ok = this.segmentFor(hash).replaceWithOld(key, hash, oldValue, newValue)
 	return
 }
 

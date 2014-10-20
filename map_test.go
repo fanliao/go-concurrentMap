@@ -4,9 +4,11 @@ import (
 	"fmt"
 	c "github.com/smartystreets/goconvey/convey"
 	"math"
+	"math/rand"
 	"reflect"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -577,3 +579,111 @@ func TestMapIterOrder(t *testing.T) {
 //}
 
 /*-------------test each type of key------------------------*/
+func testInt(t *testing.T, datas map[interface{}]interface{}) {
+	var firstKey, firstVal interface{}
+	var secondaryKey, secondaryVal interface{}
+	i := 0
+	for k, v := range datas {
+		if i == 0 {
+			firstKey, firstVal = k, v
+		} else if i == 1 {
+			secondaryKey, secondaryVal = k, v
+			break
+		}
+		i++
+	}
+
+	m := NewConcurrentMap()
+
+	//test put first key-value pair
+	previou, err := m.Put(firstKey, firstVal)
+	if previou != nil || err != nil {
+		t.Errorf("Put %v, %v firstly, return %v, %v, want nil, nil", firstKey, firstVal, previou, err)
+	}
+
+	//test put again
+	previou, err = m.Put(firstKey, firstVal)
+	if previou != firstVal || err != nil {
+		t.Errorf("Put %v, %v second time, return %v, %v, want %v, nil", firstKey, firstVal, firstVal, previou, err)
+	}
+
+	//test PutIfAbsent, if value is incorrect, PutIfAbsent will fail
+	v := rand.Float32()
+	previou, err = m.PutIfAbsent(firstKey, v)
+	if previou != firstVal || err != nil {
+		t.Errorf("PutIfAbsent %v, %v three time, return %v, %v, want %v, nil", firstKey, v, previou, err, firstVal)
+	}
+
+	//test get
+	val, err := m.Get(firstKey)
+	if val != firstVal || err != nil {
+		t.Errorf("Get %v, return %v, %v, want %v, nil", firstKey, val, err, firstVal)
+	}
+
+	//test size
+	s := m.Size()
+	if s != 1 {
+		t.Errorf("Get size of m, return %v, want 1", s)
+	}
+
+	//test PutAll
+	m.PutAll(datas)
+	s = m.Size()
+	if s != int32(len(datas)) {
+		t.Errorf("Get size of m, return %v, want %v", s, len(datas))
+	}
+
+	//test remove a key-value pair, if value is incorrect, RemoveKV will fail
+	ok, err := m.RemoveEntry(secondaryKey, v)
+	if ok != false || err != nil {
+		t.Errorf("RemoveKV %v, %v, return %v, %v, want false, nil", secondaryKey, v, ok, err)
+	}
+
+	//test replace a value for a key
+	previou, err = m.Replace(secondaryKey, v)
+	if previou != secondaryVal || err != nil {
+		t.Errorf("Replace %v, %v, return %v, %v, want %v, nil", secondaryKey, v, previou, err, secondaryVal)
+	}
+
+	//test replace a value for a key-value pair, if value is incorrect, replace will fail
+	ok, err = m.GetAndReplace(secondaryKey, secondaryVal, v)
+	if ok != false || err != nil {
+		t.Errorf("ReplaceWithOld  %v, %v, %v, return %v, %v, want false, nil", secondaryKey, secondaryVal, v, ok, err)
+	}
+
+	//test replace a value for a key-value pair, if value is correct, replace will success
+	ok, err = m.GetAndReplace(secondaryKey, v, secondaryVal)
+	if ok != true || err != nil {
+		t.Errorf("ReplaceWithOld %v, %v, %v, return %v, %v, want true, nil", secondaryKey, v, secondaryVal, ok, err)
+	}
+
+	//test remove a key
+	previou, err = m.Remove(secondaryKey)
+	if previou != secondaryVal || err != nil {
+		t.Errorf("Remove %v, return %v, %v, want %v, nil", secondaryKey, previou, err, secondaryVal)
+	}
+
+	//test clear
+	m.Clear()
+	if m.Size() != 0 {
+		t.Errorf("Get size of m after calling Clear(), return %v, want 0", val)
+	}
+}
+
+func TestIntKey(t *testing.T) {
+	testInt(t, map[interface{}]interface{}{
+		1: 10,
+		2: 20,
+		3: 30,
+		4: 40,
+	})
+}
+
+func TestStringKey(t *testing.T) {
+	testInt(t, map[interface{}]interface{}{
+		strconv.Itoa(1): 10,
+		strconv.Itoa(2): 20,
+		strconv.Itoa(3): 30,
+		strconv.Itoa(4): 40,
+	})
+}
