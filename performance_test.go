@@ -10,16 +10,19 @@ import (
 )
 
 var (
-	listN int
-	n     int
-	list  [][]interface{}
+	listN  int
+	n      int
+	list   [][]interface{}
+	readCM *ConcurrentMap
+	readLM *lockMap
+	readM  map[interface{}]interface{}
 )
 
 func init() {
-	MAXPROCS := 4
+	MAXPROCS := runtime.NumCPU()
 	runtime.GOMAXPROCS(MAXPROCS)
-	listN = 5
-	n = 10000
+	listN = MAXPROCS + 1
+	n = 100000
 	fmt.Println("MAXPROCS is ", MAXPROCS, ", listN is", listN, ", n is ", n, "\n")
 
 	list = make([][]interface{}, listN, listN)
@@ -31,6 +34,14 @@ func init() {
 		list[i] = list1
 	}
 
+	readCM = NewConcurrentMap()
+	readM = make(map[interface{}]interface{})
+	readLM = newLockMap()
+	for i := range list[0] {
+		readCM.Put(i, i)
+		readLM.put(i, i)
+		readM[i] = i
+	}
 }
 
 type lockMap struct {
@@ -71,8 +82,61 @@ func newLockMap() *lockMap {
 	return &lockMap{make(map[interface{}]interface{}), new(sync.RWMutex)}
 }
 
-func BenchmarkLockMap(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+func BenchmarkLockMapPut(b *testing.B) {
+	for n := 0; n < b.N; n++ {
+		cm := newLockMap()
+
+		wg := new(sync.WaitGroup)
+		wg.Add(listN)
+		for i := 0; i < listN; i++ {
+			k := i
+			go func() {
+				for _, j := range list[k] {
+					cm.put(j, j)
+				}
+				wg.Done()
+			}()
+		}
+		wg.Wait()
+	}
+}
+
+func BenchmarkMapPut(b *testing.B) {
+	for n := 0; n < b.N; n++ {
+		cm := make(map[interface{}]interface{})
+
+		//wg := new(sync.WaitGroup)
+		//wg.Add(listN)
+		for i := 0; i < listN; i++ {
+			for _, j := range list[i] {
+				cm[j] = j
+			}
+			//wg.Done()
+		}
+	}
+}
+
+func BenchmarkConcurrentMapPut(b *testing.B) {
+	for n := 0; n < b.N; n++ {
+		cm := NewConcurrentMap()
+
+		wg := new(sync.WaitGroup)
+		wg.Add(listN)
+		for i := 0; i < listN; i++ {
+			k := i
+			go func() {
+				for _, j := range list[k] {
+					cm.Put(j, j)
+				}
+				wg.Done()
+			}()
+		}
+		wg.Wait()
+	}
+}
+
+func BenchmarkLockMapPut2(b *testing.B) {
+	for n := 0; n < b.N; n++ {
 		cm := newLockMap()
 
 		wg := new(sync.WaitGroup)
@@ -82,10 +146,6 @@ func BenchmarkLockMap(b *testing.B) {
 			go func() {
 				for _, j := range list[k] {
 					cm.put(strconv.Itoa(j.(int)), j)
-					v, ok := cm.get(strconv.Itoa(j.(int)))
-					if v != j || !ok {
-						fmt.Println("fail in lockMap!!!!!!!!!!")
-					}
 				}
 				wg.Done()
 			}()
@@ -94,28 +154,23 @@ func BenchmarkLockMap(b *testing.B) {
 	}
 }
 
-func BenchmarkMap(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+func BenchmarkMapPut2(b *testing.B) {
+	for n := 0; n < b.N; n++ {
 		cm := make(map[interface{}]interface{})
 
 		//wg := new(sync.WaitGroup)
 		//wg.Add(listN)
 		for i := 0; i < listN; i++ {
 			for _, j := range list[i] {
-				k := strconv.Itoa(j.(int))
-				cm[k] = j
-				v := cm[strconv.Itoa(j.(int))]
-				if v != j {
-					fmt.Println("fail in Map2!!!!!!!!!!")
-				}
+				cm[strconv.Itoa(j.(int))] = j
 			}
 			//wg.Done()
 		}
 	}
 }
 
-func BenchmarkConcurrentMap(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+func BenchmarkConcurrentMapPut2(b *testing.B) {
+	for n := 0; n < b.N; n++ {
 		cm := NewConcurrentMap()
 
 		wg := new(sync.WaitGroup)
@@ -125,10 +180,56 @@ func BenchmarkConcurrentMap(b *testing.B) {
 			go func() {
 				for _, j := range list[k] {
 					cm.Put(strconv.Itoa(j.(int)), j)
-					v, _ := cm.Get(strconv.Itoa(j.(int)))
-					if v != j {
-						fmt.Println("fail in ConcurrentMap!!!!!!!!!!")
-					}
+				}
+				wg.Done()
+			}()
+		}
+		wg.Wait()
+	}
+}
+
+func BenchmarkLockMapGet(b *testing.B) {
+	for n := 0; n < b.N; n++ {
+		wg := new(sync.WaitGroup)
+		wg.Add(listN)
+		for i := 0; i < listN; i++ {
+			go func() {
+				//itr := NewMapIterator(cm)
+				//for itr.HasNext() {
+				//	entry := itr.NextEntry()
+				//	k := entry.key.(string)
+				//	v := entry.value.(int)
+				for k := range list[0] {
+					_, _ = readLM.get(k)
+				}
+				wg.Done()
+			}()
+		}
+		wg.Wait()
+	}
+}
+
+func BenchmarkMapGet(b *testing.B) {
+	for n := 0; n < b.N; n++ {
+		//wg := new(sync.WaitGroup)
+		//wg.Add(listN)
+		for i := 0; i < listN; i++ {
+			for k := range list[0] {
+				_, _ = readM[k]
+			}
+			//wg.Done()
+		}
+	}
+}
+
+func BenchmarkConcurrentMapGet(b *testing.B) {
+	for n := 0; n < b.N; n++ {
+		wg := new(sync.WaitGroup)
+		wg.Add(listN)
+		for i := 0; i < listN; i++ {
+			go func() {
+				for k := range list[0] {
+					_, _ = readCM.Get(k)
 				}
 				wg.Done()
 			}()

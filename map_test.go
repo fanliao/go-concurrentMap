@@ -1,6 +1,7 @@
 package concurrent
 
 import (
+	"errors"
 	"fmt"
 	c "github.com/smartystreets/goconvey/convey"
 	"math"
@@ -11,7 +12,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestNil(t *testing.T) {
@@ -51,6 +54,254 @@ func TestNil(t *testing.T) {
 	})
 }
 
+/*-------------test use different types as key------------------------*/
+func testConcurrentMap(t *testing.T, datas map[interface{}]interface{}) {
+	var firstKey, firstVal interface{}
+	var secondaryKey, secondaryVal interface{}
+	i := 0
+	for k, v := range datas {
+		if i == 0 {
+			firstKey, firstVal = k, v
+		} else if i == 1 {
+			secondaryKey, secondaryVal = k, v
+			break
+		}
+		i++
+	}
+
+	m := NewConcurrentMap()
+
+	//test put first key-value pair
+	previou, err := m.Put(firstKey, firstVal)
+	if previou != nil || err != nil {
+		t.Errorf("Put %v, %v firstly, return %v, %v, want nil, nil", firstKey, firstVal, previou, err)
+	}
+
+	//test put again
+	previou, err = m.Put(firstKey, firstVal)
+	if previou != firstVal || err != nil {
+		t.Errorf("Put %v, %v second time, return %v, %v, want %v, nil", firstKey, firstVal, firstVal, previou, err)
+	}
+
+	//test PutIfAbsent, if value is incorrect, PutIfAbsent will fail
+	v := rand.Float32()
+	previou, err = m.PutIfAbsent(firstKey, v)
+	if previou != firstVal || err != nil {
+		t.Errorf("PutIfAbsent %v, %v three time, return %v, %v, want %v, nil", firstKey, v, previou, err, firstVal)
+	}
+
+	//test get
+	val, err := m.Get(firstKey)
+	if val != firstVal || err != nil {
+		t.Errorf("Get %v, return %v, %v, want %v, nil", firstKey, val, err, firstVal)
+	}
+
+	//test size
+	s := m.Size()
+	if s != 1 {
+		t.Errorf("Get size of m, return %v, want 1", s)
+	}
+
+	//test PutAll
+	m.PutAll(datas)
+	s = m.Size()
+	if s != int32(len(datas)) {
+		t.Errorf("Get size of m, return %v, want %v", s, len(datas))
+	}
+
+	//test remove a key-value pair, if value is incorrect, RemoveKV will fail
+	ok, err := m.RemoveEntry(secondaryKey, v)
+	if ok != false || err != nil {
+		t.Errorf("RemoveKV %v, %v, return %v, %v, want false, nil", secondaryKey, v, ok, err)
+	}
+
+	//test replace a value for a key
+	previou, err = m.Replace(secondaryKey, v)
+	if previou != secondaryVal || err != nil {
+		t.Errorf("Replace %v, %v, return %v, %v, want %v, nil", secondaryKey, v, previou, err, secondaryVal)
+	}
+
+	//test replace a value for a key-value pair, if value is incorrect, replace will fail
+	ok, err = m.GetAndReplace(secondaryKey, secondaryVal, v)
+	if ok != false || err != nil {
+		t.Errorf("ReplaceWithOld  %v, %v, %v, return %v, %v, want false, nil", secondaryKey, secondaryVal, v, ok, err)
+	}
+
+	//test replace a value for a key-value pair, if value is correct, replace will success
+	ok, err = m.GetAndReplace(secondaryKey, v, secondaryVal)
+	if ok != true || err != nil {
+		t.Errorf("ReplaceWithOld %v, %v, %v, return %v, %v, want true, nil", secondaryKey, v, secondaryVal, ok, err)
+	}
+
+	//test remove a key
+	previou, err = m.Remove(secondaryKey)
+	if previou != secondaryVal || err != nil {
+		t.Errorf("Remove %v, return %v, %v, want %v, nil", secondaryKey, previou, err, secondaryVal)
+	}
+
+	//test clear
+	m.Clear()
+	if m.Size() != 0 {
+		t.Errorf("Get size of m after calling Clear(), return %v, want 0", val)
+	}
+}
+
+func TestIntKey(t *testing.T) {
+	testConcurrentMap(t, map[interface{}]interface{}{
+		1: 10,
+		2: 20,
+		3: 30,
+		4: 40,
+	})
+}
+
+func TestStringKey(t *testing.T) {
+	testConcurrentMap(t, map[interface{}]interface{}{
+		strconv.Itoa(1): 10,
+		strconv.Itoa(2): 20,
+		strconv.Itoa(3): 30,
+		strconv.Itoa(4): 40,
+	})
+}
+
+func Testfloat32Key(t *testing.T) {
+	testConcurrentMap(t, map[interface{}]interface{}{
+		float32(1): 10,
+		float32(2): 20,
+		float32(3): 30,
+		float32(4): 40,
+	})
+}
+
+func Testfloat64Key(t *testing.T) {
+	testConcurrentMap(t, map[interface{}]interface{}{
+		float64(1): 10,
+		float64(2): 20,
+		float64(3): 30,
+		float64(4): 40,
+	})
+}
+
+func TestPtr(t *testing.T) {
+	a, b, c, d := 1, 2, 3, 4
+	testConcurrentMap(t, map[interface{}]interface{}{
+		&a: 10,
+		&b: 20,
+		&c: 30,
+		&d: 40,
+	})
+
+	cm := NewConcurrentMap()
+	cm.Put(&a, 10)
+
+	e := a
+	if v, err := cm.Get(&e); v != nil || err != nil {
+		t.Errorf("Get %v, return %v, %v, want %v", &e, v, err, nil)
+	}
+}
+
+func TestEmptyInterface(t *testing.T) {
+	var a, b, c, d interface{} = 1, 2, 3, 4
+	testConcurrentMap(t, map[interface{}]interface{}{
+		a: 10,
+		b: 20,
+		c: 30,
+		d: 40,
+	})
+
+	cm := NewConcurrentMap()
+	cm.Put(a, 10)
+
+	e := a
+	if v, err := cm.Get(e); v != 10 || err != nil {
+		t.Errorf("Get %v, return %v, %v, want %v", &e, v, err, 10)
+	}
+}
+
+type user struct {
+	id   string
+	name string
+}
+
+func (u *user) Id() string {
+	return u.id
+}
+
+type Ider interface {
+	Id() string
+}
+
+func TestInterface(t *testing.T) {
+	var a, b, c, d Ider = &user{"1", "n1"}, &user{"2", "n2"}, &user{"3", "n3"}, &user{"4", "n4"}
+	testConcurrentMap(t, map[interface{}]interface{}{
+		a: 10,
+		b: 20,
+		c: 30,
+		d: 40,
+	})
+
+	//test using the interface object and original value as key, two value should return the same hash code
+	cm := NewConcurrentMap()
+	cm.Put(a, 10)
+	e := a.(*user)
+	if v, err := cm.Get(e); v != 10 || err != nil {
+		t.Errorf("Get %v, return %v, %v, want %v", &e, v, err, 10)
+	}
+}
+
+type small struct {
+	id   byte
+	name byte
+}
+
+func TestSmallStruct(t *testing.T) {
+	a, b, c, d := small{1, 1}, small{2, 2}, small{3, 3}, small{4, 4}
+	testConcurrentMap(t, map[interface{}]interface{}{
+		a: 10,
+		b: 20,
+		c: 30,
+		d: 40,
+	})
+
+	//test using the interface object and original value as key, two value should return the same hash code
+	cm := NewConcurrentMap()
+	cm.Put(a, 10)
+	e := small{1, 1}
+	if v, err := cm.Get(e); v != 10 || err != nil {
+		t.Errorf("Get %v, return %v, %v, want %v", &e, v, err, 10)
+	}
+}
+
+func TestUnableHash(t *testing.T) {
+	testHash := func(k interface{}) (err error) {
+		defer func() {
+			if e := recover(); e != nil {
+				err = errors.New("")
+			}
+		}()
+		cm := NewConcurrentMap()
+		cm.Put(k, 1)
+		return
+	}
+
+	err := testHash([]int{1})
+	if err == nil {
+		t.Errorf("Put slice, return nil, should be not nil")
+	}
+
+	f := func() {}
+	err = testHash(f)
+	if err == nil {
+		t.Errorf("Put function, return nil, should be not nil")
+	}
+
+	err = testHash(map[int]int{1: 1})
+	if err == nil {
+		t.Errorf("Put map, return nil, should be not nil")
+	}
+}
+
+/*----------------------test case copied from go's map_test.go--------------------------*/
 //// negative zero is a good test because:
 ////  1) 0 and -0 are equal, yet have distinct representations.
 ////  2) 0 is represented as all zeros, -0 isn't.
@@ -114,7 +365,7 @@ func TestNan(t *testing.T) {
 		t.Error("length wrong")
 	}
 	s := 0
-	itr := NewHashIterator(m)
+	itr := NewMapIterator(m)
 	for itr.HasNext() {
 		entry := itr.NextEntry()
 		k, v := entry.key.(float64), entry.value.(int)
@@ -141,7 +392,7 @@ func TestGrowWithNaN(t *testing.T) {
 	s := 0
 	growflag := true
 
-	itr := NewHashIterator(m)
+	itr := NewMapIterator(m)
 	for itr.HasNext() {
 		entry := itr.NextEntry()
 		k, v := entry.key.(float64), entry.value.(int)
@@ -260,7 +511,7 @@ func TestIterGrowAndDelete1(t *testing.T) {
 		m.Put(i, i)
 	}
 	growflag := true
-	itr := NewHashIterator(m)
+	itr := NewMapIterator(m)
 	for itr.HasNext() {
 		entry := itr.NextEntry()
 		k := entry.key
@@ -277,7 +528,7 @@ func TestIterGrowAndDelete1(t *testing.T) {
 			growflag = false
 		} else {
 			if k.(int)&1 == 1 {
-				itr := NewHashIterator(m)
+				itr := NewMapIterator(m)
 				for itr.HasNext() {
 					entry := itr.NextEntry()
 					if entry.key.(int)&1 == 1 {
@@ -300,7 +551,7 @@ func TestIterGrowWithGC(t *testing.T) {
 	}
 	growflag := true
 	bitmask := 0
-	itr := NewHashIterator(m)
+	itr := NewMapIterator(m)
 	for itr.HasNext() {
 		entry := itr.NextEntry()
 		k := entry.key.(int)
@@ -341,7 +592,7 @@ func testConcurrentReadsAfterGrowth(t *testing.T, useReflect bool) {
 			for nr := 0; nr < numReader; nr++ {
 				go func() {
 					defer wg.Done()
-					itr := NewHashIterator(m)
+					itr := NewMapIterator(m)
 					for itr.HasNext() {
 						_ = itr.NextEntry()
 					}
@@ -379,7 +630,7 @@ func TestBigItems(t *testing.T) {
 	var keys [100]string
 	var values [100]string
 	i := 0
-	itr := NewHashIterator(m)
+	itr := NewMapIterator(m)
 	for itr.HasNext() {
 		entry := itr.NextEntry()
 		k := entry.key.([256]string)
@@ -452,7 +703,7 @@ func TestSingleBucketMapStringKeys_NoDupLen(t *testing.T) {
 }
 
 func testMapLookups(t *testing.T, m *ConcurrentMap) {
-	itr := NewHashIterator(m)
+	itr := NewMapIterator(m)
 	for itr.HasNext() {
 		entry := itr.NextEntry()
 		k := entry.key.(string)
@@ -578,112 +829,96 @@ func TestMapIterOrder(t *testing.T) {
 //	}
 //}
 
-/*-------------test each type of key------------------------*/
-func testInt(t *testing.T, datas map[interface{}]interface{}) {
-	var firstKey, firstVal interface{}
-	var secondaryKey, secondaryVal interface{}
-	i := 0
-	for k, v := range datas {
-		if i == 0 {
-			firstKey, firstVal = k, v
-		} else if i == 1 {
-			secondaryKey, secondaryVal = k, v
-			break
+/*----------------test concurrent-------------------------------*/
+func TestConcurrent(t *testing.T) {
+	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(runtime.NumCPU()))
+	writeN := 2
+	readN := 4
+	n := 1000000
+	var repeat int32 = 0
+
+	wWg := new(sync.WaitGroup)
+	wWg.Add(writeN)
+	cDone := make(chan struct{})
+	cm := NewConcurrentMap()
+
+	//start writeN goroutines to write to map, and keys exist repeating part
+	for i := 0; i < writeN; i++ {
+		j := i
+		go func() {
+			for k := 0; k < n; k++ {
+				//0-99999, 50000-149999, 100000-19999, 150000-249999,200000-29999, 250000-349999
+				key := k + (j * n / 2)
+				if previous, err := cm.Put(key, strconv.Itoa(key)+strings.Repeat(" ", j)); err != nil {
+					t.Errorf("Get error %v when concurrent write map", err)
+					return
+				} else if previous != nil {
+					//get count of repeated key
+					atomic.AddInt32(&repeat, 1)
+				}
+			}
+			wWg.Done()
+		}()
+	}
+
+	go func() {
+		wWg.Wait()
+		close(cDone)
+	}()
+
+	//start readN goroutines to iterate the map
+	rWg := new(sync.WaitGroup)
+	rWg.Add(readN)
+	for i := 0; i < readN; i++ {
+		go func() {
+			for {
+				itr := NewMapIterator(cm)
+				for itr.HasNext() {
+					entry := itr.NextEntry()
+					k := entry.key.(int)
+					v := entry.value.(string)
+					if strconv.Itoa(k) != strings.Trim(v, " ") {
+						t.Errorf("Get %v by %v, want %v == strings.Trim(\"%v\")", v, k, v, k)
+						return
+					}
+				}
+
+				exit := false
+				select {
+				case <-cDone:
+					exit = true
+					break
+				case <-time.After(1 * time.Microsecond):
+				}
+
+				if exit {
+					break
+				}
+			}
+			rWg.Done()
+		}()
+	}
+
+	cLast := make(chan struct{})
+	go func() {
+		wWg.Wait()
+		if repeat != int32((writeN-1)*(n/2)) {
+			t.Errorf("Repeat %v, want %v", repeat, (writeN-1)*(n/2))
 		}
-		i++
-	}
 
-	m := NewConcurrentMap()
+		size := cm.Size()
+		if size != int32(n/2+writeN*(n/2)) {
+			t.Errorf("Size is %v, want %v", size, n/2+writeN*(n/2))
+		}
 
-	//test put first key-value pair
-	previou, err := m.Put(firstKey, firstVal)
-	if previou != nil || err != nil {
-		t.Errorf("Put %v, %v firstly, return %v, %v, want nil, nil", firstKey, firstVal, previou, err)
-	}
+		cm.Clear()
+		size = cm.Size()
+		if size != 0 {
+			t.Errorf("Size is %v after calling Clear(), want %v", size, 0)
+		}
+		close(cLast)
+	}()
 
-	//test put again
-	previou, err = m.Put(firstKey, firstVal)
-	if previou != firstVal || err != nil {
-		t.Errorf("Put %v, %v second time, return %v, %v, want %v, nil", firstKey, firstVal, firstVal, previou, err)
-	}
-
-	//test PutIfAbsent, if value is incorrect, PutIfAbsent will fail
-	v := rand.Float32()
-	previou, err = m.PutIfAbsent(firstKey, v)
-	if previou != firstVal || err != nil {
-		t.Errorf("PutIfAbsent %v, %v three time, return %v, %v, want %v, nil", firstKey, v, previou, err, firstVal)
-	}
-
-	//test get
-	val, err := m.Get(firstKey)
-	if val != firstVal || err != nil {
-		t.Errorf("Get %v, return %v, %v, want %v, nil", firstKey, val, err, firstVal)
-	}
-
-	//test size
-	s := m.Size()
-	if s != 1 {
-		t.Errorf("Get size of m, return %v, want 1", s)
-	}
-
-	//test PutAll
-	m.PutAll(datas)
-	s = m.Size()
-	if s != int32(len(datas)) {
-		t.Errorf("Get size of m, return %v, want %v", s, len(datas))
-	}
-
-	//test remove a key-value pair, if value is incorrect, RemoveKV will fail
-	ok, err := m.RemoveEntry(secondaryKey, v)
-	if ok != false || err != nil {
-		t.Errorf("RemoveKV %v, %v, return %v, %v, want false, nil", secondaryKey, v, ok, err)
-	}
-
-	//test replace a value for a key
-	previou, err = m.Replace(secondaryKey, v)
-	if previou != secondaryVal || err != nil {
-		t.Errorf("Replace %v, %v, return %v, %v, want %v, nil", secondaryKey, v, previou, err, secondaryVal)
-	}
-
-	//test replace a value for a key-value pair, if value is incorrect, replace will fail
-	ok, err = m.GetAndReplace(secondaryKey, secondaryVal, v)
-	if ok != false || err != nil {
-		t.Errorf("ReplaceWithOld  %v, %v, %v, return %v, %v, want false, nil", secondaryKey, secondaryVal, v, ok, err)
-	}
-
-	//test replace a value for a key-value pair, if value is correct, replace will success
-	ok, err = m.GetAndReplace(secondaryKey, v, secondaryVal)
-	if ok != true || err != nil {
-		t.Errorf("ReplaceWithOld %v, %v, %v, return %v, %v, want true, nil", secondaryKey, v, secondaryVal, ok, err)
-	}
-
-	//test remove a key
-	previou, err = m.Remove(secondaryKey)
-	if previou != secondaryVal || err != nil {
-		t.Errorf("Remove %v, return %v, %v, want %v, nil", secondaryKey, previou, err, secondaryVal)
-	}
-
-	//test clear
-	m.Clear()
-	if m.Size() != 0 {
-		t.Errorf("Get size of m after calling Clear(), return %v, want 0", val)
-	}
-}
-
-func TestIntKey(t *testing.T) {
-	testInt(t, map[interface{}]interface{}{
-		1: 10,
-		2: 20,
-		3: 30,
-		4: 40,
-	})
-}
-
-func TestStringKey(t *testing.T) {
-	testInt(t, map[interface{}]interface{}{
-		strconv.Itoa(1): 10,
-		strconv.Itoa(2): 20,
-		strconv.Itoa(3): 30,
-		strconv.Itoa(4): 40,
-	})
+	rWg.Wait()
+	<-cLast
 }

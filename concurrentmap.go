@@ -96,7 +96,7 @@ func (this *ConcurrentMap) segmentFor(hash uint32) *Segment {
  * @param concurrencyLevel the estimated number of concurrently
  * updating threads. The implementation performs internal sizing
  * to try to accommodate this many threads.
- * @throws IllegalArgumentException if the initial capacity is
+ * panic error "IllegalArgumentException" if the initial capacity is
  * negative or the load factor or concurrencyLevel are
  * nonpositive.
  */
@@ -162,8 +162,6 @@ func NewConcurrentMapFromMap(m map[interface{}]interface{}) *ConcurrentMap {
 
 /**
  * Returns <tt>true</tt> if this map contains no key-value mappings.
- *
- * @return <tt>true</tt> if this map contains no key-value mappings
  */
 func (this *ConcurrentMap) IsEmpty() bool {
 	segments := this.segments
@@ -201,11 +199,7 @@ func (this *ConcurrentMap) IsEmpty() bool {
 }
 
 /**
- * Returns the number of key-value mappings in this map.  If the
- * map contains more than <tt>Integer.MAX_VALUE</tt> elements, returns
- * <tt>Integer.MAX_VALUE</tt>.
- *
- * @return the number of key-value mappings in this map
+ * Returns the number of key-value mappings in this map.
  */
 func (this *ConcurrentMap) Size() int32 {
 	segments := this.segments
@@ -253,14 +247,8 @@ func (this *ConcurrentMap) Size() int32 {
 
 /**
  * Returns the value to which the specified key is mapped,
- * or {@code nil} if this map contains no mapping for the key.
+ * or nil if this map contains no mapping for the key.
  *
- * <p>More formally, if this map contains a mapping from a key
- * {@code k} to a value {@code v} such that {@code key.equals(k)},
- * then this method returns {@code v}; otherwise it returns
- * {@code nil}.  (There can be at most one such mapping.)
- *
- * @throws NullPointerException if the specified key is nil
  */
 func (this *ConcurrentMap) Get(key interface{}) (value interface{}, err error) {
 	if isNil(key) {
@@ -275,10 +263,9 @@ func (this *ConcurrentMap) Get(key interface{}) (value interface{}, err error) {
  * Tests if the specified object is a key in this table.
  *
  * @param  key   possible key
- * @return <tt>true</tt> if and only if the specified object
+ * @return true if and only if the specified object
  *         is a key in this table, as determined by the
- *         <tt>equals</tt> method; <tt>false</tt> otherwise.
- * @throws NullPointerException if the specified key is nil
+ *         == method; false otherwise.
  */
 func (this *ConcurrentMap) ContainsKey(key interface{}) (found bool, err error) {
 	if isNil(key) {
@@ -428,6 +415,11 @@ func (this *ConcurrentMap) Clear() {
 	for i := 0; i < len(this.segments); i++ {
 		this.segments[i].clear()
 	}
+}
+
+//Iterator returns a iterator for ConcurrentMap
+func (this *ConcurrentMap) Iterator() *MapIterator {
+	return NewMapIterator(this)
 }
 
 func NewConcurrentMap2(initialCapacity int, loadFactor float32) (m *ConcurrentMap) {
@@ -858,7 +850,7 @@ func (this *MapIterator) Remove() {
 	this.lastReturned = nil
 }
 
-func NewHashIterator(cm *ConcurrentMap) *MapIterator {
+func NewMapIterator(cm *ConcurrentMap) *MapIterator {
 	hi := MapIterator{}
 	hi.nextSegmentIndex = len(cm.segments) - 1
 	hi.nextTableIndex = -1

@@ -75,7 +75,7 @@ func hashi(val interface{}) (hashCode uint32) {
 		h.Write([]byte(v))
 		hashCode = h.Sum32()
 	default:
-		//Will panic if type of interface{} cannot used as hash key
+		//Will panic if val cannot be used as hash key
 		_ = val == val
 
 		//array, struct, channel, interface, pointer
@@ -87,11 +87,10 @@ func hashi(val interface{}) (hashCode uint32) {
 			hashCode = hashi(uintptr(ei.word))
 		case reflect.Interface:
 			hashCode = hashi(rv.Elem())
-		case reflect.Array, reflect.Struct:
+		default:
+			//for array, struct and chan, use bytes to calculate the hash code
 			hashMem(rv, h)
 			hashCode = h.Sum32()
-		case reflect.Chan:
-			hashMem(rv, h)
 		}
 	}
 	return
