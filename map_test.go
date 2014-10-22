@@ -54,7 +54,7 @@ func TestNil(t *testing.T) {
 	})
 }
 
-/*-------------test use different types as key------------------------*/
+/*-------------test using different types as key------------------------*/
 func testConcurrentMap(t *testing.T, datas map[interface{}]interface{}) {
 	var firstKey, firstVal interface{}
 	var secondaryKey, secondaryVal interface{}
@@ -122,13 +122,13 @@ func testConcurrentMap(t *testing.T, datas map[interface{}]interface{}) {
 	}
 
 	//test replace a value for a key-value pair, if value is incorrect, replace will fail
-	ok, err = m.GetAndReplace(secondaryKey, secondaryVal, v)
+	ok, err = m.CompareAndReplace(secondaryKey, secondaryVal, v)
 	if ok != false || err != nil {
 		t.Errorf("ReplaceWithOld  %v, %v, %v, return %v, %v, want false, nil", secondaryKey, secondaryVal, v, ok, err)
 	}
 
 	//test replace a value for a key-value pair, if value is correct, replace will success
-	ok, err = m.GetAndReplace(secondaryKey, v, secondaryVal)
+	ok, err = m.CompareAndReplace(secondaryKey, v, secondaryVal)
 	if ok != true || err != nil {
 		t.Errorf("ReplaceWithOld %v, %v, %v, return %v, %v, want true, nil", secondaryKey, v, secondaryVal, ok, err)
 	}
@@ -301,7 +301,7 @@ func TestUnableHash(t *testing.T) {
 	}
 }
 
-/*----------------------test case copied from go's map_test.go--------------------------*/
+/*----------------------test cases copied from go's map_test.go--------------------------*/
 //// negative zero is a good test because:
 ////  1) 0 and -0 are equal, yet have distinct representations.
 ////  2) 0 is represented as all zeros, -0 isn't.
@@ -365,10 +365,10 @@ func TestNan(t *testing.T) {
 		t.Error("length wrong")
 	}
 	s := 0
-	itr := NewMapIterator(m)
+	itr := m.Iterator()
 	for itr.HasNext() {
 		entry := itr.NextEntry()
-		k, v := entry.key.(float64), entry.value.(int)
+		k, v := entry.Key.(float64), entry.Value.(int)
 		if k == k {
 			t.Error("nan disappeared")
 		}
@@ -395,7 +395,7 @@ func TestGrowWithNaN(t *testing.T) {
 	itr := NewMapIterator(m)
 	for itr.HasNext() {
 		entry := itr.NextEntry()
-		k, v := entry.key.(float64), entry.value.(int)
+		k, v := entry.Key.(float64), entry.Value.(int)
 		if growflag {
 			// force a hashtable resize
 			for i := 0; i < 100; i++ {
@@ -511,10 +511,10 @@ func TestIterGrowAndDelete1(t *testing.T) {
 		m.Put(i, i)
 	}
 	growflag := true
-	itr := NewMapIterator(m)
+	itr := m.Iterator()
 	for itr.HasNext() {
 		entry := itr.NextEntry()
-		k := entry.key
+		k := entry.Key
 		//t.Log("k ad growflag111111", k, growflag)
 		if growflag {
 			// grow the table
@@ -531,11 +531,11 @@ func TestIterGrowAndDelete1(t *testing.T) {
 				itr := NewMapIterator(m)
 				for itr.HasNext() {
 					entry := itr.NextEntry()
-					if entry.key.(int)&1 == 1 {
+					if entry.Key.(int)&1 == 1 {
 						t.Error("odd value returned by itr")
 					}
 				}
-				//ConcurrentMap cannot iterate the values changed outside iterator
+				//ConcurrentMap cannot iterate the values changed outside iterator after grow
 				//t.Error("odd value returned")
 			}
 		}
@@ -554,7 +554,7 @@ func TestIterGrowWithGC(t *testing.T) {
 	itr := NewMapIterator(m)
 	for itr.HasNext() {
 		entry := itr.NextEntry()
-		k := entry.key.(int)
+		k := entry.Key.(int)
 		if k < 16 {
 			bitmask |= 1 << uint(k)
 		}
@@ -633,8 +633,8 @@ func TestBigItems(t *testing.T) {
 	itr := NewMapIterator(m)
 	for itr.HasNext() {
 		entry := itr.NextEntry()
-		k := entry.key.([256]string)
-		v := entry.value.([256]string)
+		k := entry.Key.([256]string)
+		v := entry.Value.([256]string)
 		//for k, v := range m {
 		keys[i] = k[37]
 		values[i] = v[37]
@@ -706,8 +706,8 @@ func testMapLookups(t *testing.T, m *ConcurrentMap) {
 	itr := NewMapIterator(m)
 	for itr.HasNext() {
 		entry := itr.NextEntry()
-		k := entry.key.(string)
-		v := entry.value.(string)
+		k := entry.Key.(string)
+		v := entry.Value.(string)
 		//for k, v := range m {
 		if v1, err := m.Get(k); v1 != v || err != nil {
 			t.Fatalf("m[%q] = %q; want %q", k, v1, v)
@@ -875,8 +875,8 @@ func TestConcurrent(t *testing.T) {
 				itr := NewMapIterator(cm)
 				for itr.HasNext() {
 					entry := itr.NextEntry()
-					k := entry.key.(int)
-					v := entry.value.(string)
+					k := entry.Key.(int)
+					v := entry.Value.(string)
 					if strconv.Itoa(k) != strings.Trim(v, " ") {
 						t.Errorf("Get %v by %v, want %v == strings.Trim(\"%v\")", v, k, v, k)
 						return
@@ -922,3 +922,37 @@ func TestConcurrent(t *testing.T) {
 	rWg.Wait()
 	<-cLast
 }
+
+//func Test1(t *testing.T) {
+//	m := NewConcurrentMap()
+
+//	previou, err := m.Put(1, 10) //return nil, nil
+//	t.Log("1.", previou, err)
+//	previou, err = m.PutIfAbsent(1, 20) //return 10, nil
+//	t.Log("2.", previou, err)
+
+//	val, err := m.Get(1) //return 10, nil
+//	t.Log("3.", val, err)
+//	s := m.Size() //return 1
+//	t.Log("4.", s)
+
+//	m.PutAll(map[interface{}]interface{}{
+//		1: 100,
+//		2: 200,
+//	})
+//	ok, err := m.RemoveEntry(1, 100) //return true, nil
+//	t.Log("5.", ok, err)
+
+//	previou, err = m.Replace(2, 20) //return 200, nil
+//	t.Log("6.", previou, err)
+//	ok, err = m.CompareAndReplace(2, 200, 20) //return false, nil
+//	t.Log("7.", ok, err)
+
+//	previou, err = m.Remove(2) //return 20, nil
+//	t.Log("8.", previou, err)
+
+//	m.Clear()
+//	s = m.Size() //return 0
+//	t.Log("9.", s)
+
+//}

@@ -85,66 +85,6 @@ func (this *ConcurrentMap) segmentFor(hash uint32) *Segment {
 }
 
 /**
- * Creates a new, empty map with the specified initial
- * capacity, load factor and concurrency level.
- *
- * @param initialCapacity the initial capacity. The implementation
- * performs internal sizing to accommodate this many elements.
- * @param loadFactor  the load factor threshold, used to control resizing.
- * Resizing may be performed when the average number of elements per
- * bin exceeds this threshold.
- * @param concurrencyLevel the estimated number of concurrently
- * updating threads. The implementation performs internal sizing
- * to try to accommodate this many threads.
- * panic error "IllegalArgumentException" if the initial capacity is
- * negative or the load factor or concurrencyLevel are
- * nonpositive.
- */
-func NewConcurrentMap3(initialCapacity int,
-	loadFactor float32, concurrencyLevel int) (m *ConcurrentMap) {
-	m = &ConcurrentMap{}
-
-	if !(loadFactor > 0) || initialCapacity < 0 || concurrencyLevel <= 0 {
-		panic(errors.New("IllegalArgumentException"))
-	}
-
-	if concurrencyLevel > MAX_SEGMENTS {
-		concurrencyLevel = MAX_SEGMENTS
-	}
-
-	// Find power-of-two sizes best matching arguments
-	sshift := 0
-	ssize := 1
-	for ssize < concurrencyLevel {
-		sshift++
-		ssize = ssize << 1
-	}
-
-	m.segmentShift = uint(32) - uint(sshift)
-	m.segmentMask = ssize - 1
-
-	m.segments = make([]*Segment, ssize)
-
-	if initialCapacity > MAXIMUM_CAPACITY {
-		initialCapacity = MAXIMUM_CAPACITY
-	}
-
-	c := initialCapacity / ssize
-	if c*ssize < initialCapacity {
-		c++
-	}
-	cap := 1
-	for cap < c {
-		cap <<= 1
-	}
-
-	for i := 0; i < len(m.segments); i++ {
-		m.segments[i] = newSegment(cap, loadFactor)
-	}
-	return
-}
-
-/**
  * Creates a new map with the same mappings as the given map.
  * The map is created with a capacity of 1.5 times the number
  * of mappings in the given map or 16 (whichever is greater),
@@ -161,7 +101,7 @@ func NewConcurrentMapFromMap(m map[interface{}]interface{}) *ConcurrentMap {
 }
 
 /**
- * Returns <tt>true</tt> if this map contains no key-value mappings.
+ * Returns true if this map contains no key-value mappings.
  */
 func (this *ConcurrentMap) IsEmpty() bool {
 	segments := this.segments
@@ -263,9 +203,8 @@ func (this *ConcurrentMap) Get(key interface{}) (value interface{}, err error) {
  * Tests if the specified object is a key in this table.
  *
  * @param  key   possible key
- * @return true if and only if the specified object
- *         is a key in this table, as determined by the
- *         == method; false otherwise.
+ * @return true if and only if the specified object is a key in this table,
+ * as determined by the == method; false otherwise.
  */
 func (this *ConcurrentMap) ContainsKey(key interface{}) (found bool, err error) {
 	if isNil(key) {
@@ -280,14 +219,14 @@ func (this *ConcurrentMap) ContainsKey(key interface{}) (found bool, err error) 
  * Maps the specified key to the specified value in this table.
  * Neither the key nor the value can be nil.
  *
- * <p> The value can be retrieved by calling the <tt>get</tt> method
+ * The value can be retrieved by calling the get method
  * with a key that is equal to the original key.
  *
  * @param key key with which the specified value is to be associated
  * @param value value to be associated with the specified key
- * @return the previous value associated with <tt>key</tt>, or
- *         <tt>nil</tt> if there was no mapping for <tt>key</tt>
- * @throws NullPointerException if the specified key or value is nil
+ *
+ * @return the previous value associated with key, or
+ *         nil if there was no mapping for key
  */
 func (this *ConcurrentMap) Put(key interface{}, value interface{}) (previous interface{}, err error) {
 	if isNil(key) {
@@ -302,11 +241,15 @@ func (this *ConcurrentMap) Put(key interface{}, value interface{}) (previous int
 }
 
 /**
- * {@inheritDoc}
+ * If mapping exists for the key, then maps the specified key to the specified value in this table.
+ * else will ignore.
+ * Neither the key nor the value can be nil.
+ *
+ * The value can be retrieved by calling the get method
+ * with a key that is equal to the original key.
  *
  * @return the previous value associated with the specified key,
- *         or <tt>nil</tt> if there was no mapping for the key
- * @throws NullPointerException if the specified key or value is nil
+ *         or nil if there was no mapping for the key
  */
 func (this *ConcurrentMap) PutIfAbsent(key interface{}, value interface{}) (previous interface{}, err error) {
 	if isNil(key) {
@@ -342,9 +285,7 @@ func (this *ConcurrentMap) PutAll(m map[interface{}]interface{}) (err error) {
  * This method does nothing if the key is not in the map.
  *
  * @param  key the key that needs to be removed
- * @return the previous value associated with <tt>key</tt>, or
- *         <tt>nil</tt> if there was no mapping for <tt>key</tt>
- * @throws NullPointerException if the specified key is nil
+ * @return the previous value associated with key, or nil if there was no mapping for key
  */
 func (this *ConcurrentMap) Remove(key interface{}) (previous interface{}, err error) {
 	if isNil(key) {
@@ -356,9 +297,10 @@ func (this *ConcurrentMap) Remove(key interface{}) (previous interface{}, err er
 }
 
 /**
- * {@inheritDoc}
+ * Removes the mapping for the key and value from this map.
+ * This method does nothing if no mapping for the key and value.
  *
- * @throws NullPointerException if the specified key is nil
+ * @return true if mapping be removed, false otherwise
  */
 func (this *ConcurrentMap) RemoveEntry(key interface{}, value interface{}) (ok bool, err error) {
 	if isNil(key) {
@@ -373,11 +315,13 @@ func (this *ConcurrentMap) RemoveEntry(key interface{}, value interface{}) (ok b
 }
 
 /**
- * {@inheritDoc}
+ * CompareAndReplace executes the compare-and-replace operation.
+ * Replaces the value if the mapping exists for the oldValue and value from this map.
+ * This method does nothing if no mapping for the key and value.
  *
- * @throws NullPointerException if any of the arguments are nil
+ * @return true if value be replaced, false otherwise
  */
-func (this *ConcurrentMap) GetAndReplace(key interface{}, oldValue interface{}, newValue interface{}) (ok bool, err error) {
+func (this *ConcurrentMap) CompareAndReplace(key interface{}, oldValue interface{}, newValue interface{}) (ok bool, err error) {
 	if isNil(key) {
 		return false, NilKeyError
 	}
@@ -390,11 +334,11 @@ func (this *ConcurrentMap) GetAndReplace(key interface{}, oldValue interface{}, 
 }
 
 /**
- * {@inheritDoc}
+ * Replaces the value if the key is in the map.
+ * This method does nothing if no mapping for the key.
  *
  * @return the previous value associated with the specified key,
- *         or <tt>nil</tt> if there was no mapping for the key
- * @throws NullPointerException if the specified key or value is nil
+ *         or nil if there was no mapping for the key
  */
 func (this *ConcurrentMap) Replace(key interface{}, value interface{}) (previous interface{}, err error) {
 	if isNil(key) {
@@ -422,6 +366,81 @@ func (this *ConcurrentMap) Iterator() *MapIterator {
 	return NewMapIterator(this)
 }
 
+/**
+ * Creates a new, empty map with the specified initial
+ * capacity, load factor and concurrency level.
+ *
+ * @param initialCapacity the initial capacity. The implementation
+ * performs internal sizing to accommodate this many elements.
+ *
+ * @param loadFactor  the load factor threshold, used to control resizing.
+ * Resizing may be performed when the average number of elements per
+ * bin exceeds this threshold.
+ *
+ * @param concurrencyLevel the estimated number of concurrently
+ * updating threads. The implementation performs internal sizing
+ * to try to accommodate this many threads.
+ *
+ * panic error "IllegalArgumentException" if the initial capacity is
+ * negative or the load factor or concurrencyLevel are
+ * nonpositive.
+ */
+func NewConcurrentMap3(initialCapacity int,
+	loadFactor float32, concurrencyLevel int) (m *ConcurrentMap) {
+	m = &ConcurrentMap{}
+
+	if !(loadFactor > 0) || initialCapacity < 0 || concurrencyLevel <= 0 {
+		panic(errors.New("IllegalArgumentException"))
+	}
+
+	if concurrencyLevel > MAX_SEGMENTS {
+		concurrencyLevel = MAX_SEGMENTS
+	}
+
+	// Find power-of-two sizes best matching arguments
+	sshift := 0
+	ssize := 1
+	for ssize < concurrencyLevel {
+		sshift++
+		ssize = ssize << 1
+	}
+
+	m.segmentShift = uint(32) - uint(sshift)
+	m.segmentMask = ssize - 1
+
+	m.segments = make([]*Segment, ssize)
+
+	if initialCapacity > MAXIMUM_CAPACITY {
+		initialCapacity = MAXIMUM_CAPACITY
+	}
+
+	c := initialCapacity / ssize
+	if c*ssize < initialCapacity {
+		c++
+	}
+	cap := 1
+	for cap < c {
+		cap <<= 1
+	}
+
+	for i := 0; i < len(m.segments); i++ {
+		m.segments[i] = newSegment(cap, loadFactor)
+	}
+	return
+}
+
+/**
+ * Creates a new, empty map with the specified initial capacity,
+ * and with specified initial capacity and concurrencyLevel (16).
+ *
+ * @param initialCapacity the initial capacity. The implementation
+ * performs internal sizing to accommodate this many elements.
+ *
+ * @param loadFactor  the load factor threshold, used to control resizing.
+ * Resizing may be performed when the average number of elements per
+ * bin exceeds this threshold.
+ *
+ */
 func NewConcurrentMap2(initialCapacity int, loadFactor float32) (m *ConcurrentMap) {
 	return NewConcurrentMap3(initialCapacity, loadFactor, DEFAULT_CONCURRENCY_LEVEL)
 }
@@ -432,8 +451,6 @@ func NewConcurrentMap2(initialCapacity int, loadFactor float32) (m *ConcurrentMa
  *
  * @param initialCapacity the initial capacity. The implementation
  * performs internal sizing to accommodate this many elements.
- * @throws IllegalArgumentException if the initial capacity of
- * elements is negative.
  */
 func NewConcurrentMap1(initialCapacity int) (m *ConcurrentMap) {
 	return NewConcurrentMap3(initialCapacity, DEFAULT_LOAD_FACTOR, DEFAULT_CONCURRENCY_LEVEL)
@@ -460,9 +477,9 @@ func NewConcurrentMap() (m *ConcurrentMap) {
  * an unsynchronized access method.
  */
 type Entry struct {
-	key   interface{}
+	Key   interface{}
 	hash  uint32
-	value interface{}
+	Value interface{}
 	next  *Entry
 }
 
@@ -484,8 +501,8 @@ type Segment struct {
 
 	/**
 	 * The table is rehashed when its size exceeds this threshold.
-	 * (The value of this field is always <tt>(int)(capacity *
-	 * loadFactor)</tt>.)
+	 * (The value of this field is always (int)(capacity *
+	 * loadFactor).)
 	 */
 	threshold int32
 
@@ -568,7 +585,7 @@ func (this *Segment) rehash() {
 				for p := e; p != lastRun; p = p.next {
 					k := p.hash & sizeMask
 					n := newTable[k]
-					newTable[k] = &Entry{p.key, p.hash, p.value, n}
+					newTable[k] = &Entry{p.Key, p.hash, p.Value, n}
 				}
 			}
 		}
@@ -607,7 +624,7 @@ func (this *Segment) getFirst(hash uint32) *Entry {
 func (this *Segment) readValueUnderLock(e *Entry) interface{} {
 	this.lock.Lock()
 	defer this.lock.Unlock()
-	return e.value
+	return e.Value
 }
 
 /* Specialized implementations of map methods */
@@ -616,8 +633,8 @@ func (this *Segment) get(key interface{}, hash uint32) interface{} {
 	if atomic.LoadInt32(&this.count) != 0 { // read-volatile
 		e := this.getFirst(hash)
 		for e != nil {
-			if e.hash == hash && key == e.key {
-				v := e.value
+			if e.hash == hash && key == e.Key {
+				v := e.Value
 				if v != nil {
 					return v
 				}
@@ -633,7 +650,7 @@ func (this *Segment) containsKey(key interface{}, hash uint32) bool {
 	if atomic.LoadInt32(&this.count) != 0 { // read-volatile
 		e := this.getFirst(hash)
 		for e != nil {
-			if e.hash == hash && key == e.key {
+			if e.hash == hash && key == e.Key {
 				return true
 			}
 			e = e.next
@@ -647,14 +664,14 @@ func (this *Segment) replaceWithOld(key interface{}, hash uint32, oldValue inter
 	defer this.lock.Unlock()
 
 	e := this.getFirst(hash)
-	for e != nil && (e.hash != hash || key != e.key) {
+	for e != nil && (e.hash != hash || key != e.Key) {
 		e = e.next
 	}
 
 	replaced := false
-	if e != nil && oldValue == e.value {
+	if e != nil && oldValue == e.Value {
 		replaced = true
-		e.value = newValue
+		e.Value = newValue
 	}
 	return replaced
 }
@@ -663,13 +680,13 @@ func (this *Segment) replace(key interface{}, hash uint32, newValue interface{})
 	this.lock.Lock()
 	defer this.lock.Unlock()
 	e := this.getFirst(hash)
-	for e != nil && (e.hash != hash || key != e.key) {
+	for e != nil && (e.hash != hash || key != e.Key) {
 		e = e.next
 	}
 
 	if e != nil {
-		oldValue = e.value
-		e.value = newValue
+		oldValue = e.Value
+		e.Value = newValue
 	}
 	return
 }
@@ -688,14 +705,14 @@ func (this *Segment) put(key interface{}, hash uint32, value interface{}, onlyIf
 	index := hash & uint32(len(tab)-1)
 	first := tab[index]
 	e := first
-	for e != nil && (e.hash != hash || key != e.key) {
+	for e != nil && (e.hash != hash || key != e.Key) {
 		e = e.next
 	}
 
 	if e != nil {
-		oldValue = e.value
+		oldValue = e.Value
 		if !onlyIfAbsent {
-			e.value = value
+			e.Value = value
 		}
 	} else {
 		oldValue = nil
@@ -719,12 +736,12 @@ func (this *Segment) remove(key interface{}, hash uint32, value interface{}) (ol
 	first := tab[index]
 	e := first
 
-	for e != nil && (e.hash != hash || key != e.key) {
+	for e != nil && (e.hash != hash || key != e.Key) {
 		e = e.next
 	}
 
 	if e != nil {
-		v := e.value
+		v := e.Value
 		if value == nil || value == v {
 			oldValue = v
 			// All entries following removed node can stay
@@ -733,7 +750,7 @@ func (this *Segment) remove(key interface{}, hash uint32, value interface{}) (ol
 			this.modCount++
 			newFirst := e.next
 			for p := first; p != e; p = p.next {
-				newFirst = &Entry{p.key, p.hash, p.value, newFirst}
+				newFirst = &Entry{p.Key, p.hash, p.Value, newFirst}
 			}
 			tab[index] = newFirst
 			this.count = c
@@ -846,7 +863,7 @@ func (this *MapIterator) Remove() {
 	if this.lastReturned == nil {
 		panic("IllegalStateException")
 	}
-	this.cm.Remove(this.lastReturned.key)
+	this.cm.Remove(this.lastReturned.Key)
 	this.lastReturned = nil
 }
 
