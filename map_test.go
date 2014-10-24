@@ -369,7 +369,7 @@ func TestNan(t *testing.T) {
 	itr := m.Iterator()
 	for itr.HasNext() {
 		entry := itr.NextEntry()
-		k, v := entry.Key.(float64), entry.Value.(int)
+		k, v := entry.Key().(float64), entry.Value().(int)
 		if k == k {
 			t.Error("nan disappeared")
 		}
@@ -396,7 +396,7 @@ func TestGrowWithNaN(t *testing.T) {
 	itr := NewMapIterator(m)
 	for itr.HasNext() {
 		entry := itr.NextEntry()
-		k, v := entry.Key.(float64), entry.Value.(int)
+		k, v := entry.Key().(float64), entry.Value().(int)
 		if growflag {
 			// force a hashtable resize
 			for i := 0; i < 100; i++ {
@@ -515,7 +515,7 @@ func TestIterGrowAndDelete1(t *testing.T) {
 	itr := m.Iterator()
 	for itr.HasNext() {
 		entry := itr.NextEntry()
-		k := entry.Key
+		k := entry.Key()
 		//t.Log("k ad growflag111111", k, growflag)
 		if growflag {
 			// grow the table
@@ -532,7 +532,7 @@ func TestIterGrowAndDelete1(t *testing.T) {
 				itr := NewMapIterator(m)
 				for itr.HasNext() {
 					entry := itr.NextEntry()
-					if entry.Key.(int)&1 == 1 {
+					if entry.Key().(int)&1 == 1 {
 						t.Error("odd value returned by itr")
 					}
 				}
@@ -555,7 +555,7 @@ func TestIterGrowWithGC(t *testing.T) {
 	itr := NewMapIterator(m)
 	for itr.HasNext() {
 		entry := itr.NextEntry()
-		k := entry.Key.(int)
+		k := entry.Key().(int)
 		if k < 16 {
 			bitmask |= 1 << uint(k)
 		}
@@ -634,8 +634,8 @@ func TestBigItems(t *testing.T) {
 	itr := NewMapIterator(m)
 	for itr.HasNext() {
 		entry := itr.NextEntry()
-		k := entry.Key.([256]string)
-		v := entry.Value.([256]string)
+		k := entry.Key().([256]string)
+		v := entry.Value().([256]string)
 		//for k, v := range m {
 		keys[i] = k[37]
 		values[i] = v[37]
@@ -707,8 +707,8 @@ func testMapLookups(t *testing.T, m *ConcurrentMap) {
 	itr := NewMapIterator(m)
 	for itr.HasNext() {
 		entry := itr.NextEntry()
-		k := entry.Key.(string)
-		v := entry.Value.(string)
+		k := entry.Key().(string)
+		v := entry.Value().(string)
 		//for k, v := range m {
 		if v1, err := m.Get(k); v1 != v || err != nil {
 			t.Fatalf("m[%q] = %q; want %q", k, v1, v)
@@ -878,8 +878,8 @@ func TestConcurrent(t *testing.T) {
 				itr := NewMapIterator(cm)
 				for itr.HasNext() {
 					entry := itr.NextEntry()
-					k := entry.Key.(int)
-					v := entry.Value.(string)
+					k := entry.Key().(int)
+					v := entry.Value().(string)
 					if strconv.Itoa(k) != strings.Trim(v, " ") {
 						t.Errorf("Get %v by %v, want %v == strings.Trim(\"%v\")", v, k, v, k)
 						return

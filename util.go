@@ -14,6 +14,7 @@ const (
 	bigEndian = false
 )
 
+//hash a interface using FNVa
 func hashi(val interface{}) (hashCode uint32) {
 	h := fnv.New32a()
 	switch v := val.(type) {
@@ -54,13 +55,15 @@ func hashi(val interface{}) (hashCode uint32) {
 		h.Write((*((*[intSize]byte)(unsafe.Pointer(&v))))[:])
 		hashCode = h.Sum32()
 	case float32:
-		if v != v { //Nan
+		//Nan != Nan, so use a rand number to generate hash code
+		if v != v {
 			v = rand.Float32()
 		}
 		h.Write((*((*[4]byte)(unsafe.Pointer(&v))))[:])
 		hashCode = h.Sum32()
 	case float64:
-		if v != v { //Nan
+		//Nan != Nan, so use a rand number to generate hash code
+		if v != v {
 			v = rand.Float64()
 		}
 		h.Write((*((*[8]byte)(unsafe.Pointer(&v))))[:])
@@ -75,20 +78,22 @@ func hashi(val interface{}) (hashCode uint32) {
 		h.Write([]byte(v))
 		hashCode = h.Sum32()
 	default:
-		//Will panic if val cannot be used as hash key
+		//some types can be used as key, we can use equals to test
 		_ = val == val
 
-		//array, struct, channel, interface, pointer
+		//support array, struct, channel, interface, pointer
 		//don't support slice, function, map
 		rv := reflect.ValueOf(val)
 		switch rv.Kind() {
 		case reflect.Ptr:
+			//ei.word stores the memory address of value that v points to, we use address to generate hash code
 			ei := (*emptyInterface)(unsafe.Pointer(&val))
 			hashCode = hashi(uintptr(ei.word))
 		case reflect.Interface:
+			//for interface, we use contained value to generate the hash code
 			hashCode = hashi(rv.Elem())
 		default:
-			//for array, struct and chan, use bytes to calculate the hash code
+			//for array, struct and chan, will get byte array to calculate the hash code
 			hashMem(rv, h)
 			hashCode = h.Sum32()
 		}
@@ -96,9 +101,13 @@ func hashi(val interface{}) (hashCode uint32) {
 	return
 }
 
+//hashMem writes byte array of underlying value to hash function
 func hashMem(i interface{}, hashFunc hash.Hash32) {
 	size := reflect.ValueOf(i).Type().Size()
 	ei := (*emptyInterface)(unsafe.Pointer(&i))
+
+	//if size of underlying value is greater than pointer size, ei.word will store the pointer that point to underlying value
+	//else ei.word will store underlying value
 	if size > ptrSize {
 		addr := ei.word
 		hashPtrData(uintptr(addr), size, hashFunc)
@@ -112,37 +121,42 @@ func hashMem(i interface{}, hashFunc hash.Hash32) {
 func hashPtrData(ptr uintptr, size uintptr, hashFunc hash.Hash32) {
 	idx := 0
 	for {
-		if size > 16 {
+		if size >= 32 {
+			bytes := *(*[32]byte)(unsafe.Pointer(ptr))
+			size -= 32
+			ptr += 32
+			idx += 32
+			hashFunc.Write(bytes[:])
+		} else if size >= 16 {
 			bytes := *(*[16]byte)(unsafe.Pointer(ptr))
 			size -= 16
 			ptr += 16
 			idx += 16
 			hashFunc.Write(bytes[:])
-		} else if size > 8 {
+		} else if size >= 8 {
 			bytes := *(*[8]byte)(unsafe.Pointer(ptr))
 			size -= 8
 			ptr += 8
 			idx += 8
 			hashFunc.Write(bytes[:])
-		} else if size > 4 {
+		} else if size >= 4 {
 			bytes := *(*[4]byte)(unsafe.Pointer(ptr))
 			size -= 4
 			ptr += 4
 			idx += 4
 			hashFunc.Write(bytes[:])
-		} else if size > 2 {
+		} else if size >= 2 {
 			bytes := *(*[2]byte)(unsafe.Pointer(ptr))
 			size -= 2
 			ptr += 2
 			idx += 2
 			hashFunc.Write(bytes[:])
-		} else if size == 2 {
-			bytes := *(*[2]byte)(unsafe.Pointer(ptr))
-			hashFunc.Write(bytes[:])
-			return
 		} else if size == 1 {
 			bytes := *(*[1]byte)(unsafe.Pointer(ptr))
 			hashFunc.Write(bytes[:])
+			return
+		}
+		if size == 0 {
 			return
 		}
 	}
@@ -174,23 +188,3 @@ type emptyInterface struct {
 	typ  uintptr
 	word unsafe.Pointer
 }
-
-//package main
-
-//import(
-//	"fmt"
-//	"unsafe"
-//)
-
-//func main(){
-//	var f64 float64 = 99999999.999
-//	var f32 float32 = 999991.1
-//	var r rune = 'a'
-//	b2 := 0x12345678
-//	fmt.Println(*((*uint64)(unsafe.Pointer(&f32))), uint64(*((*uint32)(unsafe.Pointer(&f32)))))
-//	fmt.Println(*((*uint32)(unsafe.Pointer(&f64))), *((*uint64)(unsafe.Pointer(&f64))), uint64(r))
-//  //*((*[32]byte)(unsafe.Pointer(&b2)))这个指针转换是否不安全，b2只有4个字节，后面的28个字节貌似不安全？
-//	fmt.Println(uint32(b2), *((*uint64)(unsafe.Pointer(&b2))), *((*[32]byte)(unsafe.Pointer(&b2))), *((*[4]byte)(unsafe.Pointer(&b2))))
-//	fmt.Println(0x12, 0x34, 0x56, 0x78)
-//	fmt.Println("Hello World")
-//}

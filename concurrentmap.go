@@ -465,22 +465,29 @@ func NewConcurrentMap() (m *ConcurrentMap) {
 }
 
 /**
- * ConcurrentHashMap list entry. Note that this is never exported
- * out as a user-visible Map.Entry.
- *
- * Because the value field is volatile, not final, it is legal wrt
- * the Java Memory Model for an unsynchronized reader to see nil
- * instead of initial value when read via a data race.  Although a
- * reordering leading to this is not likely to ever actually
- * occur, the Segment.readValueUnderLock method is used as a
+ * ConcurrentHashMap list entry.
+ * Note only value field is variable and must use atomic to read/write it, other three fields are read-only after initializing.
+ * so can use unsynchronized reader, the Segment.readValueUnderLock method is used as a
  * backup in case a nil (pre-initialized) value is ever seen in
  * an unsynchronized access method.
  */
 type Entry struct {
-	Key   interface{}
+	key   interface{}
 	hash  uint32
-	Value interface{}
+	value unsafe.Pointer //interface{}
 	next  *Entry
+}
+
+func (this *Entry) Key() interface{} {
+	return this.key
+}
+
+func (this *Entry) Value() interface{} {
+	return *((*interface{})(atomic.LoadPointer(&this.value)))
+}
+
+func (this *Entry) fastValue() interface{} {
+	return *((*interface{})(this.value))
 }
 
 type Segment struct {
@@ -553,7 +560,7 @@ func (this *Segment) rehash() {
 
 		if e != nil {
 			next := e.next
-			//计算扩容后新的数组下标
+			//计算节点扩容后新的数组下标
 			idx := e.hash & sizeMask
 
 			//  Single node on list
@@ -561,19 +568,21 @@ func (this *Segment) rehash() {
 			if next == nil {
 				newTable[idx] = e
 			} else {
-				// Reuse trailing consecutive sequence at same slot
-				// 数组扩容后原来下标相同（碰撞）的节点可能下标会出现不同
-				// 下面的代码为了提高效率，会循环碰撞链表，找到链表中最后出现的新下标相同节点的首节点
-				// 然后将这个首节点复制到新数组，后续节点因为计算出的新下标相同，所以在扩容后的数组中仍然是碰撞
-				// 所以新的首节点的碰撞链表是正确的
-				// 新的首节点之外的其他现存碰撞链表上的节点，则重新复制到新节点（这个重要）后放入新数组
-				// 这个过程的关键在于维持所有旧节点的next属性不会发生变化，这样才能让无锁的读操作保持线程安全
+				/* Reuse trailing consecutive sequence at same slot
+				 * 数组扩容后原来数组下标相同（碰撞）的节点可能会计算出不同的新下标
+				 * 如果把碰撞链表中所有节点的新下标列出，并将相邻的新下标相同的节点视为一段
+				 * 那么下面的代码为了提高效率，会循环碰撞链表，找到链表中最后一段首节点（之后所有节点的新下标相同）
+				 * 然后将这个首节点复制到新数组，后续节点因为计算出的新下标相同，所以在扩容后的数组中仍然在同一碰撞链表中
+				 * 所以新的首节点的碰撞链表是正确的
+				 * 新的首节点之外的其他现存碰撞链表上的节点，则重新复制到新节点（这个重要，可以保持旧节点的不变性）后放入新数组
+				 * 这个过程的关键在于维持所有旧节点的next属性不会发生变化，这样才能让无锁的读操作保持线程安全
+				 */
 				lastRun := e
 				lastIdx := idx
 				for last := next; last != nil; last = last.next {
 					k := last.hash & uint32(sizeMask)
 					//发现新下标不同的节点就保存到lastIdx和lastRun中
-					//所以lastIdx和lastRun总是对应现有碰撞链表中最后一个新下标和其对应节点
+					//所以lastIdx和lastRun总是对应现有碰撞链表中最后一段新下标相同节点的首节点和其对应的新下标
 					if k != lastIdx {
 						lastIdx = k
 						lastRun = last
@@ -585,7 +594,7 @@ func (this *Segment) rehash() {
 				for p := e; p != lastRun; p = p.next {
 					k := p.hash & sizeMask
 					n := newTable[k]
-					newTable[k] = &Entry{p.Key, p.hash, p.Value, n}
+					newTable[k] = &Entry{p.key, p.hash, p.value, n}
 				}
 			}
 		}
@@ -624,7 +633,7 @@ func (this *Segment) getFirst(hash uint32) *Entry {
 func (this *Segment) readValueUnderLock(e *Entry) interface{} {
 	this.lock.Lock()
 	defer this.lock.Unlock()
-	return e.Value
+	return e.fastValue()
 }
 
 /* Specialized implementations of map methods */
@@ -633,8 +642,8 @@ func (this *Segment) get(key interface{}, hash uint32) interface{} {
 	if atomic.LoadInt32(&this.count) != 0 { // read-volatile
 		e := this.getFirst(hash)
 		for e != nil {
-			if e.hash == hash && key == e.Key {
-				v := e.Value
+			if e.hash == hash && key == e.key {
+				v := e.Value()
 				if v != nil {
 					return v
 				}
@@ -650,7 +659,7 @@ func (this *Segment) containsKey(key interface{}, hash uint32) bool {
 	if atomic.LoadInt32(&this.count) != 0 { // read-volatile
 		e := this.getFirst(hash)
 		for e != nil {
-			if e.hash == hash && key == e.Key {
+			if e.hash == hash && key == e.key {
 				return true
 			}
 			e = e.next
@@ -664,14 +673,14 @@ func (this *Segment) replaceWithOld(key interface{}, hash uint32, oldValue inter
 	defer this.lock.Unlock()
 
 	e := this.getFirst(hash)
-	for e != nil && (e.hash != hash || key != e.Key) {
+	for e != nil && (e.hash != hash || key != e.key) {
 		e = e.next
 	}
 
 	replaced := false
-	if e != nil && oldValue == e.Value {
+	if e != nil && oldValue == e.fastValue() {
 		replaced = true
-		e.Value = newValue
+		e.value = unsafe.Pointer(&newValue)
 	}
 	return replaced
 }
@@ -680,13 +689,13 @@ func (this *Segment) replace(key interface{}, hash uint32, newValue interface{})
 	this.lock.Lock()
 	defer this.lock.Unlock()
 	e := this.getFirst(hash)
-	for e != nil && (e.hash != hash || key != e.Key) {
+	for e != nil && (e.hash != hash || key != e.key) {
 		e = e.next
 	}
 
 	if e != nil {
-		oldValue = e.Value
-		e.Value = newValue
+		oldValue = e.fastValue()
+		e.value = unsafe.Pointer(&newValue)
 	}
 	return
 }
@@ -705,19 +714,19 @@ func (this *Segment) put(key interface{}, hash uint32, value interface{}, onlyIf
 	index := hash & uint32(len(tab)-1)
 	first := tab[index]
 	e := first
-	for e != nil && (e.hash != hash || key != e.Key) {
+	for e != nil && (e.hash != hash || key != e.key) {
 		e = e.next
 	}
 
 	if e != nil {
-		oldValue = e.Value
+		oldValue = e.fastValue()
 		if !onlyIfAbsent {
-			e.Value = value
+			e.value = unsafe.Pointer(&value)
 		}
 	} else {
 		oldValue = nil
 		this.modCount++
-		tab[index] = &Entry{key, hash, value, first}
+		tab[index] = &Entry{key, hash, unsafe.Pointer(&value), first}
 		this.count = c // write-volatile
 	}
 	return
@@ -736,12 +745,12 @@ func (this *Segment) remove(key interface{}, hash uint32, value interface{}) (ol
 	first := tab[index]
 	e := first
 
-	for e != nil && (e.hash != hash || key != e.Key) {
+	for e != nil && (e.hash != hash || key != e.key) {
 		e = e.next
 	}
 
 	if e != nil {
-		v := e.Value
+		v := e.fastValue()
 		if value == nil || value == v {
 			oldValue = v
 			// All entries following removed node can stay
@@ -750,7 +759,7 @@ func (this *Segment) remove(key interface{}, hash uint32, value interface{}) (ol
 			this.modCount++
 			newFirst := e.next
 			for p := first; p != e; p = p.next {
-				newFirst = &Entry{p.Key, p.hash, p.Value, newFirst}
+				newFirst = &Entry{p.key, p.hash, p.value, newFirst}
 			}
 			tab[index] = newFirst
 			this.count = c
@@ -863,7 +872,7 @@ func (this *MapIterator) Remove() {
 	if this.lastReturned == nil {
 		panic("IllegalStateException")
 	}
-	this.cm.Remove(this.lastReturned.Key)
+	this.cm.Remove(this.lastReturned.key)
 	this.lastReturned = nil
 }
 
