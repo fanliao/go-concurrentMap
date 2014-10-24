@@ -54,7 +54,7 @@ func TestNil(t *testing.T) {
 	})
 }
 
-/*-------------test using different types as key------------------------*/
+/*-------------test different types as key------------------------*/
 func testConcurrentMap(t *testing.T, datas map[interface{}]interface{}) {
 	var firstKey, firstVal interface{}
 	var secondaryKey, secondaryVal interface{}
@@ -71,32 +71,32 @@ func testConcurrentMap(t *testing.T, datas map[interface{}]interface{}) {
 
 	m := NewConcurrentMap()
 
-	//test put first key-value pair
+	//test Put first key-value pair
 	previou, err := m.Put(firstKey, firstVal)
 	if previou != nil || err != nil {
 		t.Errorf("Put %v, %v firstly, return %v, %v, want nil, nil", firstKey, firstVal, previou, err)
 	}
 
-	//test put again
+	//test Put again
 	previou, err = m.Put(firstKey, firstVal)
 	if previou != firstVal || err != nil {
 		t.Errorf("Put %v, %v second time, return %v, %v, want %v, nil", firstKey, firstVal, firstVal, previou, err)
 	}
 
-	//test PutIfAbsent, if value is incorrect, PutIfAbsent will fail
+	//test PutIfAbsent, if value is incorrect, PutIfAbsent will be ignored
 	v := rand.Float32()
 	previou, err = m.PutIfAbsent(firstKey, v)
 	if previou != firstVal || err != nil {
 		t.Errorf("PutIfAbsent %v, %v three time, return %v, %v, want %v, nil", firstKey, v, previou, err, firstVal)
 	}
 
-	//test get
+	//test Get
 	val, err := m.Get(firstKey)
 	if val != firstVal || err != nil {
 		t.Errorf("Get %v, return %v, %v, want %v, nil", firstKey, val, err, firstVal)
 	}
 
-	//test size
+	//test Size
 	s := m.Size()
 	if s != 1 {
 		t.Errorf("Get size of m, return %v, want 1", s)
@@ -109,7 +109,7 @@ func testConcurrentMap(t *testing.T, datas map[interface{}]interface{}) {
 		t.Errorf("Get size of m, return %v, want %v", s, len(datas))
 	}
 
-	//test remove a key-value pair, if value is incorrect, RemoveKV will fail
+	//test remove a key-value pair, if value is incorrect, RemoveKV will return be ignored and return false
 	ok, err := m.RemoveEntry(secondaryKey, v)
 	if ok != false || err != nil {
 		t.Errorf("RemoveKV %v, %v, return %v, %v, want false, nil", secondaryKey, v, ok, err)
@@ -121,7 +121,7 @@ func testConcurrentMap(t *testing.T, datas map[interface{}]interface{}) {
 		t.Errorf("Replace %v, %v, return %v, %v, want %v, nil", secondaryKey, v, previou, err, secondaryVal)
 	}
 
-	//test replace a value for a key-value pair, if value is incorrect, replace will fail
+	//test replace a value for a key-value pair, if value is incorrect, replace will ignored and return false
 	ok, err = m.CompareAndReplace(secondaryKey, secondaryVal, v)
 	if ok != false || err != nil {
 		t.Errorf("ReplaceWithOld  %v, %v, %v, return %v, %v, want false, nil", secondaryKey, secondaryVal, v, ok, err)
@@ -301,7 +301,8 @@ func TestUnableHash(t *testing.T) {
 	}
 }
 
-/*----------------------test cases copied from go's map_test.go--------------------------*/
+/*--------test cases copied from go standard library's map_test.go--------------------*/
+//TestNegativeZero fail
 //// negative zero is a good test because:
 ////  1) 0 and -0 are equal, yet have distinct representations.
 ////  2) 0 is represented as all zeros, -0 isn't.
@@ -715,6 +716,7 @@ func testMapLookups(t *testing.T, m *ConcurrentMap) {
 	}
 }
 
+//TestMapNanGrowIterator fail
 //// Tests whether the iterator returns the right elements when
 //// started in the middle of a grow, when the keys are NaNs.
 //func TestMapNanGrowIterator(t *testing.T) {
@@ -782,6 +784,7 @@ func TestMapIterOrder(t *testing.T) {
 	}
 }
 
+//TestMapStringBytesLookup fail
 //func TestMapStringBytesLookup(t *testing.T) {
 //	// Use large string keys to avoid small-allocation coalescing,
 //	// which can cause AllocsPerRun to report lower counts than it should.
@@ -842,7 +845,7 @@ func TestConcurrent(t *testing.T) {
 	cDone := make(chan struct{})
 	cm := NewConcurrentMap()
 
-	//start writeN goroutines to write to map, and keys exist repeating part
+	//start writeN goroutines to write to map with repeated keys, and count the total number of repeated key
 	for i := 0; i < writeN; i++ {
 		j := i
 		go func() {
@@ -853,7 +856,7 @@ func TestConcurrent(t *testing.T) {
 					t.Errorf("Get error %v when concurrent write map", err)
 					return
 				} else if previous != nil {
-					//get count of repeated key
+					//count the total number of repeated key
 					atomic.AddInt32(&repeat, 1)
 				}
 			}
@@ -883,6 +886,7 @@ func TestConcurrent(t *testing.T) {
 					}
 				}
 
+				//exit read goroutines if all write goroutines are done
 				exit := false
 				select {
 				case <-cDone:
@@ -899,6 +903,8 @@ func TestConcurrent(t *testing.T) {
 		}()
 	}
 
+	//Start a goroutines to count the size of concurrentMap and total number of repeated keys 
+	//after all write goroutines are done
 	cLast := make(chan struct{})
 	go func() {
 		wWg.Wait()
@@ -923,6 +929,7 @@ func TestConcurrent(t *testing.T) {
 	<-cLast
 }
 
+//below code are used in readme.txt
 //func Test1(t *testing.T) {
 //	m := NewConcurrentMap()
 
