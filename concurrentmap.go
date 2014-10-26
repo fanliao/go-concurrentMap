@@ -79,8 +79,8 @@ type ConcurrentMap struct {
  * @return the segment
  */
 func (this *ConcurrentMap) segmentFor(hash uint32) *Segment {
-	//默认segmentShift是28，segmentMask是15（0x1111）,所以hash>>this.segmentShift就是取前面4位
-	//为何还要&uint32(this.segmentMask)？java中>>>是无符号移位，除了前面4位外应该都是0
+	//默认segmentShift是28，segmentMask是（0xFFFFFFF）,所以hash>>this.segmentShift就是取前面4位
+	//&segmentMask似乎没有必要
 	return this.segments[(hash>>this.segmentShift)&uint32(this.segmentMask)]
 }
 
@@ -106,7 +106,7 @@ func NewConcurrentMapFromMap(m map[interface{}]interface{}) *ConcurrentMap {
 func (this *ConcurrentMap) IsEmpty() bool {
 	segments := this.segments
 	/*
-	 * We keep track of per-segment modCounts to avoid ABA
+	 * keep track of per-segment modCounts to avoid ABA
 	 * problems in which an element in one segment was added and
 	 * in another removed during traversal, in which case the
 	 * table was never actually empty at any point. Note the
@@ -194,7 +194,7 @@ func (this *ConcurrentMap) Get(key interface{}) (value interface{}, err error) {
 	if isNil(key) {
 		return nil, NilKeyError
 	}
-	hash := hash2(hashi(key))
+	hash := hash2(hashI(key))
 	value = this.segmentFor(hash).get(key, hash)
 	return
 }
@@ -210,7 +210,7 @@ func (this *ConcurrentMap) ContainsKey(key interface{}) (found bool, err error) 
 	if isNil(key) {
 		return false, NilKeyError
 	}
-	hash := hash2(hashi(key))
+	hash := hash2(hashI(key))
 	found = this.segmentFor(hash).containsKey(key, hash)
 	return
 }
@@ -235,7 +235,7 @@ func (this *ConcurrentMap) Put(key interface{}, value interface{}) (previous int
 	if isNil(value) {
 		return nil, NilValueError
 	}
-	hash := hash2(hashi(key))
+	hash := hash2(hashI(key))
 	previous = this.segmentFor(hash).put(key, hash, value, false)
 	return
 }
@@ -258,7 +258,7 @@ func (this *ConcurrentMap) PutIfAbsent(key interface{}, value interface{}) (prev
 	if isNil(value) {
 		return nil, NilValueError
 	}
-	hash := hash2(hashi(key))
+	hash := hash2(hashI(key))
 	previous = this.segmentFor(hash).put(key, hash, value, true)
 	return
 }
@@ -291,7 +291,7 @@ func (this *ConcurrentMap) Remove(key interface{}) (previous interface{}, err er
 	if isNil(key) {
 		return nil, NilKeyError
 	}
-	hash := hash2(hashi(key))
+	hash := hash2(hashI(key))
 	previous = this.segmentFor(hash).remove(key, hash, nil)
 	return
 }
@@ -309,7 +309,7 @@ func (this *ConcurrentMap) RemoveEntry(key interface{}, value interface{}) (ok b
 	if isNil(value) {
 		return false, NilValueError
 	}
-	hash := hash2(hashi(key))
+	hash := hash2(hashI(key))
 	ok = this.segmentFor(hash).remove(key, hash, value) != nil
 	return
 }
@@ -328,7 +328,7 @@ func (this *ConcurrentMap) CompareAndReplace(key interface{}, oldValue interface
 	if isNil(oldValue) || isNil(newValue) {
 		return false, NilValueError
 	}
-	hash := hash2(hashi(key))
+	hash := hash2(hashI(key))
 	ok = this.segmentFor(hash).replaceWithOld(key, hash, oldValue, newValue)
 	return
 }
@@ -347,7 +347,7 @@ func (this *ConcurrentMap) Replace(key interface{}, value interface{}) (previous
 	if isNil(value) {
 		return nil, NilValueError
 	}
-	hash := hash2(hashi(key))
+	hash := hash2(hashI(key))
 	previous = this.segmentFor(hash).replace(key, hash, value)
 	return
 }
@@ -518,9 +518,10 @@ type Segment struct {
 	threshold int32
 
 	/**
-	 * The per-segment table.
+	 * The per-segment table. 
+	 * Use unsafe.Pointer because must use atomic.LoadPointer function in read operations.
 	 */
-	table unsafe.Pointer //point to []*Entry
+	pTable unsafe.Pointer //point to []unsafe.Pointer
 
 	/**
 	 * The load factor for the hash table.  Even though this value
@@ -534,7 +535,7 @@ type Segment struct {
 }
 
 func (this *Segment) rehash() {
-	oldTable := *(*[]*Entry)(this.table)
+	oldTable := this.table() //*(*[]*Entry)(this.table)
 	oldCapacity := len(oldTable)
 	if oldCapacity >= MAXIMUM_CAPACITY {
 		return
@@ -554,13 +555,13 @@ func (this *Segment) rehash() {
 	 * right now.
 	 */
 
-	newTable := make([]*Entry, oldCapacity<<1)
+	newTable := make([]unsafe.Pointer, oldCapacity<<1)
 	atomic.StoreInt32(&this.threshold, int32(float32(len(newTable))*this.loadFactor))
 	sizeMask := uint32(len(newTable) - 1)
 	for i := 0; i < oldCapacity; i++ {
 		// We need to guarantee that any existing reads of old Map can
 		//  proceed. So we cannot yet nil out each bin.
-		e := oldTable[i]
+		e := (*Entry)(oldTable[i])
 
 		if e != nil {
 			next := e.next
@@ -570,7 +571,7 @@ func (this *Segment) rehash() {
 			//  Single node on list
 			//如果没有后续的碰撞节点，直接复制到新数组即可
 			if next == nil {
-				newTable[idx] = e
+				newTable[idx] = unsafe.Pointer(e)
 			} else {
 				/* Reuse trailing consecutive sequence at same slot
 				 * 数组扩容后原来数组下标相同（碰撞）的节点可能会计算出不同的新下标
@@ -592,44 +593,59 @@ func (this *Segment) rehash() {
 						lastRun = last
 					}
 				}
-				newTable[lastIdx] = lastRun
+				newTable[lastIdx] = unsafe.Pointer(lastRun)
 
 				// Clone all remaining nodes
 				for p := e; p != lastRun; p = p.next {
 					k := p.hash & sizeMask
 					n := newTable[k]
-					newTable[k] = &Entry{p.key, p.hash, p.value, n}
+					newTable[k] = unsafe.Pointer(&Entry{p.key, p.hash, p.value, (*Entry)(n)})
 				}
 			}
 		}
 	}
-	this.table = unsafe.Pointer(&newTable)
+	this.pTable = unsafe.Pointer(&newTable)
 }
 
 /**
- * Sets table to new HashEntry array.
+ * Sets table to new pointer slice that all item points to HashEntry.
  * Call only while holding lock or in constructor.
  */
-func (this *Segment) setTable(newTable []*Entry) {
+func (this *Segment) setTable(newTable []unsafe.Pointer) {
 	this.threshold = (int32)(float32(len(newTable)) * this.loadFactor)
-	this.table = unsafe.Pointer(&newTable)
+	this.pTable = unsafe.Pointer(&newTable)
 }
 
-func (this *Segment) loadTable() (table []*Entry) {
-	return *(*[]*Entry)(atomic.LoadPointer(&this.table))
+/**
+ * uses atomic to load table and returns.
+ * Call while no lock.
+ */
+func (this *Segment) loadTable() (table []unsafe.Pointer) {
+	return *(*[]unsafe.Pointer)(atomic.LoadPointer(&this.pTable))
+}
+
+/**
+ * returns pointer slice that all item points to HashEntry.
+ * Call only while holding lock or in constructor.
+ */
+func (this *Segment) table() []unsafe.Pointer{
+	return *(*[]unsafe.Pointer)(this.pTable)
 }
 
 /**
  * Returns properly casted first entry of bin for given hash.
  */
 func (this *Segment) getFirst(hash uint32) *Entry {
-	tab := *(*[]*Entry)(atomic.LoadPointer(&this.table))
-	return tab[hash&uint32(len(tab)-1)]
+	tab := this.loadTable()
+	return (*Entry)(atomic.LoadPointer(&tab[hash&uint32(len(tab)-1)]))
 }
 
 /**
  * Reads value field of an entry under lock. Called if value
- * field ever appears to be nil. This is possible only if a
+ * field ever appears to be nil. see below code:
+ * 		tab[index] = unsafe.Pointer(&Entry{key, hash, unsafe.Pointer(&value), first})
+ * go memory model don't explain Entry initialization must be executed before 
+ * table assignment. So value is nil is possible only if a
  * compiler happens to reorder a HashEntry initialization with
  * its table assignment, which is legal under memory model
  * but is not known to ever occur.
@@ -643,7 +659,7 @@ func (this *Segment) readValueUnderLock(e *Entry) interface{} {
 /* Specialized implementations of map methods */
 
 func (this *Segment) get(key interface{}, hash uint32) interface{} {
-	if atomic.LoadInt32(&this.count) != 0 { // read-volatile
+	if atomic.LoadInt32(&this.count) != 0 { // atomic-read
 		e := this.getFirst(hash)
 		for e != nil {
 			if e.hash == hash && key == e.key {
@@ -714,9 +730,9 @@ func (this *Segment) put(key interface{}, hash uint32, value interface{}, onlyIf
 	}
 	c++
 
-	tab := *(*[]*Entry)(this.table)
+	tab := this.table()
 	index := hash & uint32(len(tab)-1)
-	first := tab[index]
+	first := (*Entry)(tab[index])
 	e := first
 	for e != nil && (e.hash != hash || key != e.key) {
 		e = e.next
@@ -730,7 +746,7 @@ func (this *Segment) put(key interface{}, hash uint32, value interface{}, onlyIf
 	} else {
 		oldValue = nil
 		this.modCount++
-		tab[index] = &Entry{key, hash, unsafe.Pointer(&value), first}
+		tab[index] = unsafe.Pointer(&Entry{key, hash, unsafe.Pointer(&value), first})
 		this.count = c // write-volatile
 	}
 	return
@@ -744,9 +760,9 @@ func (this *Segment) remove(key interface{}, hash uint32, value interface{}) (ol
 	defer this.lock.Unlock()
 
 	c := this.count - 1
-	tab := *(*[]*Entry)(this.table)
+	tab := this.table()
 	index := hash & uint32(len(tab)-1)
-	first := tab[index]
+	first := (*Entry)(tab[index])
 	e := first
 
 	for e != nil && (e.hash != hash || key != e.key) {
@@ -765,7 +781,7 @@ func (this *Segment) remove(key interface{}, hash uint32, value interface{}) (ol
 			for p := first; p != e; p = p.next {
 				newFirst = &Entry{p.key, p.hash, p.value, newFirst}
 			}
-			tab[index] = newFirst
+			tab[index] = unsafe.Pointer(newFirst)
 			this.count = c
 		}
 	}
@@ -777,7 +793,7 @@ func (this *Segment) clear() {
 		this.lock.Lock()
 		defer this.lock.Unlock()
 
-		tab := *(*[]*Entry)(this.table)
+		tab := this.table()
 		for i := 0; i < len(tab); i++ {
 			tab[i] = nil
 		}
@@ -789,8 +805,9 @@ func (this *Segment) clear() {
 func newSegment(initialCapacity int, lf float32) (s *Segment) {
 	s = new(Segment)
 	s.loadFactor = lf
-	table := make([]*Entry, initialCapacity)
-	s.table = unsafe.Pointer(&table)
+	table := make([]unsafe.Pointer, initialCapacity)
+	s.setTable(table)
+	//s.table = unsafe.Pointer(&table)
 	s.lock = new(sync.Mutex)
 	return
 }
@@ -812,7 +829,7 @@ func hash2(h uint32) uint32 {
 	//h += (h << 2) + (h << 14)
 	//return uint32(h ^ (h >> 16))
 
-	//Now all hashcode is created by FNVa, so will not porr quality hash functions
+	//Now all hashcode is created by FNVa, so will not poor quality hash functions
 	return h
 }
 
@@ -821,7 +838,7 @@ func hash2(h uint32) uint32 {
 type MapIterator struct {
 	nextSegmentIndex int
 	nextTableIndex   int
-	currentTable     []*Entry
+	currentTable     []unsafe.Pointer
 	nextEntry        *Entry
 	lastReturned     *Entry
 	cm               *ConcurrentMap
@@ -836,7 +853,7 @@ func (this *MapIterator) advance() {
 	}
 
 	for this.nextTableIndex >= 0 {
-		this.nextEntry = this.currentTable[this.nextTableIndex]
+		this.nextEntry = (*Entry)(atomic.LoadPointer(&this.currentTable[this.nextTableIndex]))
 		this.nextTableIndex--
 		if this.nextEntry != nil {
 			return
@@ -846,10 +863,10 @@ func (this *MapIterator) advance() {
 	for this.nextSegmentIndex >= 0 {
 		seg := this.cm.segments[this.nextSegmentIndex]
 		this.nextSegmentIndex--
-		if seg.count != 0 {
+		if atomic.LoadInt32(&seg.count) != 0 {
 			this.currentTable = seg.loadTable()
 			for j := len(this.currentTable) - 1; j >= 0; j-- {
-				this.nextEntry = this.currentTable[j]
+				this.nextEntry = (*Entry)(atomic.LoadPointer(&this.currentTable[j]))
 				if this.nextEntry != nil {
 					this.nextTableIndex = j - 1
 					return

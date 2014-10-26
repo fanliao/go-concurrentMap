@@ -15,7 +15,7 @@ const (
 )
 
 //hash a interface using FNVa
-func hashi(val interface{}) (hashCode uint32) {
+func hashI(val interface{}) (hashCode uint32) {
 	h := fnv.New32a()
 	switch v := val.(type) {
 	case bool:
@@ -88,10 +88,10 @@ func hashi(val interface{}) (hashCode uint32) {
 		case reflect.Ptr:
 			//ei.word stores the memory address of value that v points to, we use address to generate hash code
 			ei := (*emptyInterface)(unsafe.Pointer(&val))
-			hashCode = hashi(uintptr(ei.word))
+			hashCode = hashI(uintptr(ei.word))
 		case reflect.Interface:
 			//for interface, we use contained value to generate the hash code
-			hashCode = hashi(rv.Elem())
+			hashCode = hashI(rv.Elem())
 		default:
 			//for array, struct and chan, will get byte array to calculate the hash code
 			hashMem(rv, h)
