@@ -490,6 +490,10 @@ func (this *Entry) fastValue() interface{} {
 	return *((*interface{})(this.value))
 }
 
+func (this *Entry) storeValue(v *interface{}) {
+	atomic.StorePointer(&this.value, unsafe.Pointer(v))
+}
+
 type Segment struct {
 	/**
 	 * The number of elements in this segment's region.
@@ -680,7 +684,7 @@ func (this *Segment) replaceWithOld(key interface{}, hash uint32, oldValue inter
 	replaced := false
 	if e != nil && oldValue == e.fastValue() {
 		replaced = true
-		e.value = unsafe.Pointer(&newValue)
+		e.storeValue(&newValue)
 	}
 	return replaced
 }
@@ -695,7 +699,7 @@ func (this *Segment) replace(key interface{}, hash uint32, newValue interface{})
 
 	if e != nil {
 		oldValue = e.fastValue()
-		e.value = unsafe.Pointer(&newValue)
+		e.storeValue(&newValue)
 	}
 	return
 }
@@ -721,7 +725,7 @@ func (this *Segment) put(key interface{}, hash uint32, value interface{}, onlyIf
 	if e != nil {
 		oldValue = e.fastValue()
 		if !onlyIfAbsent {
-			e.value = unsafe.Pointer(&value)
+			e.storeValue(&value)
 		}
 	} else {
 		oldValue = nil
