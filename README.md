@@ -33,7 +33,7 @@ s = m.Size()                                   //return 0
 itr := m.Iterator()
 for itr.HasNext() {
 	entry := itr.NextEntry()
-	k, v := entry.Key, entry.Value
+	k, v := entry.Key(), entry.Value()
 }
 ```
 
@@ -53,7 +53,7 @@ I used LockMap to compare the performance, it is a implement that uses the RWMut
 
 * ConcurrentMap Get ------------------ 60.583466 ms/op
 
-* LockMap PutAndGet---------------- 820.546950 ms/op 
+* LockMap PutAndGet---------------- 620.546950 ms/op 
 
 * ConcurrentMap PutAndGet ------- 138.507920 ms/op
 
