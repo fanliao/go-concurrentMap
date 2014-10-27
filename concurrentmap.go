@@ -55,6 +55,7 @@ var (
 	NilValueError error = errors.New("Nil value error")
 )
 
+//segments is read-only, don't need synchronized
 type ConcurrentMap struct {
 	/**
 	 * Mask value for indexing into segments. The upper bits of a
@@ -79,8 +80,9 @@ type ConcurrentMap struct {
  * @return the segment
  */
 func (this *ConcurrentMap) segmentFor(hash uint32) *Segment {
-	//默认segmentShift是28，segmentMask是（0xFFFFFFF）,所以hash>>this.segmentShift就是取前面4位
+	//默认segmentShift是28，segmentMask是（0xFFFFFFF）,hash>>this.segmentShift就是取前面4位
 	//&segmentMask似乎没有必要
+	//get first four bytes
 	return this.segments[(hash>>this.segmentShift)&uint32(this.segmentMask)]
 }
 
@@ -518,7 +520,7 @@ type Segment struct {
 	threshold int32
 
 	/**
-	 * The per-segment table. 
+	 * The per-segment table.
 	 * Use unsafe.Pointer because must use atomic.LoadPointer function in read operations.
 	 */
 	pTable unsafe.Pointer //point to []unsafe.Pointer
@@ -628,7 +630,7 @@ func (this *Segment) loadTable() (table []unsafe.Pointer) {
  * returns pointer slice that all item points to HashEntry.
  * Call only while holding lock or in constructor.
  */
-func (this *Segment) table() []unsafe.Pointer{
+func (this *Segment) table() []unsafe.Pointer {
 	return *(*[]unsafe.Pointer)(this.pTable)
 }
 
@@ -644,7 +646,7 @@ func (this *Segment) getFirst(hash uint32) *Entry {
  * Reads value field of an entry under lock. Called if value
  * field ever appears to be nil. see below code:
  * 		tab[index] = unsafe.Pointer(&Entry{key, hash, unsafe.Pointer(&value), first})
- * go memory model don't explain Entry initialization must be executed before 
+ * go memory model don't explain Entry initialization must be executed before
  * table assignment. So value is nil is possible only if a
  * compiler happens to reorder a HashEntry initialization with
  * its table assignment, which is legal under memory model
@@ -720,6 +722,15 @@ func (this *Segment) replace(key interface{}, hash uint32, newValue interface{})
 	return
 }
 
+/**
+ * put方法牵涉到count, modCount, pTable三个共享变量的修改
+ * 在Java中count和pTable是volatile字段，而modCount不是
+ * 由于IsEmpty和Size等操作会读取count, modCount和pTable并且是无锁的，这里有必要对进行并发安全性的分析
+ * 在Java中，volatile的读具有Acquire语义，volatile的写具有release语义，而put的最后会写入count，
+ * 其他读操作总是会先读取count，由此保证了put中其他的写入操作不会被reorder到写入count之后，而读操作中其他的读取不会被reorder到读count之前
+ * 由此保证了多线程情况下读和写线程中看到的操作次序不会发送混乱，
+ * 在Golang中，StorePointer内部使用了xchgl指令，具有内存屏障，但是Load操作似乎并未具有明确的acquire语义
+ */
 func (this *Segment) put(key interface{}, hash uint32, value interface{}, onlyIfAbsent bool) (oldValue interface{}) {
 	this.lock.Lock()
 	defer this.lock.Unlock()
@@ -747,7 +758,8 @@ func (this *Segment) put(key interface{}, hash uint32, value interface{}, onlyIf
 		oldValue = nil
 		this.modCount++
 		tab[index] = unsafe.Pointer(&Entry{key, hash, unsafe.Pointer(&value), first})
-		this.count = c // write-volatile
+		atomic.StoreInt32(&this.count, c) // atomic write 这里可以保证对modCount和tab的修改不会被reorder到this.count之后
+		//this.count = c // write-volatile
 	}
 	return
 }
@@ -782,7 +794,7 @@ func (this *Segment) remove(key interface{}, hash uint32, value interface{}) (ol
 				newFirst = &Entry{p.key, p.hash, p.value, newFirst}
 			}
 			tab[index] = unsafe.Pointer(newFirst)
-			this.count = c
+			atomic.StoreInt32(&this.count, c) //this.count = c
 		}
 	}
 	return
@@ -798,7 +810,7 @@ func (this *Segment) clear() {
 			tab[i] = nil
 		}
 		this.modCount++
-		this.count = 0 // write-volatile
+		atomic.StoreInt32(&this.count, 0) //this.count = 0 // write-volatile
 	}
 }
 
