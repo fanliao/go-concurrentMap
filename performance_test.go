@@ -175,7 +175,7 @@ func BenchmarkMapPutNoGrow(b *testing.B) {
 
 func BenchmarkConcurrentMapPutNoGrow(b *testing.B) {
 	for n := 0; n < b.N; n++ {
-		cm := NewConcurrentMap1(listN * number)
+		cm := NewConcurrentMap(listN * number)
 
 		wg := new(sync.WaitGroup)
 		wg.Add(listN)

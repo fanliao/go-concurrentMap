@@ -309,7 +309,7 @@ func TestUnableHash(t *testing.T) {
 //// I'm not sure the language spec actually requires this behavior,
 //// but it's what the current map implementation does.
 //func TestNegativeZero(t *testing.T) {
-//	m := NewConcurrentMap1(0)
+//	m := NewConcurrentMap(0)
 //	var zero float64 = +0.0
 //	var nzero float64 = math.Copysign(0.0, -1.0)
 
@@ -332,7 +332,7 @@ func TestUnableHash(t *testing.T) {
 //		}
 //	}
 
-//	m = NewConcurrentMap1(0)
+//	m = NewConcurrentMap(0)
 
 //	m.Put(nzero, true)
 //	m.Put(zero, true) // should overwrite -0.0 entry
@@ -357,7 +357,7 @@ func TestUnableHash(t *testing.T) {
 // nan is a good test because nan != nan, and nan has
 // a randomized hash value.
 func TestNan(t *testing.T) {
-	m := NewConcurrentMap1(0) //make(map[float64]int, 0)
+	m := NewConcurrentMap(0) //make(map[float64]int, 0)
 	nan := math.NaN()
 	m.Put(nan, 1)
 	m.Put(nan, 2)
@@ -384,7 +384,7 @@ func TestNan(t *testing.T) {
 }
 
 func TestGrowWithNaN(t *testing.T) {
-	m := NewConcurrentMap1(0) //make(map[float64]int, 0)
+	m := NewConcurrentMap(0) //make(map[float64]int, 0)
 	nan := math.NaN()
 	m.Put(nan, 1)
 	m.Put(nan, 2)
@@ -507,7 +507,7 @@ func TestIterGrowAndDelete(t *testing.T) {
 }
 
 func TestIterGrowAndDelete1(t *testing.T) {
-	m := NewConcurrentMap1(4) //	make(map[int]int, 4)
+	m := NewConcurrentMap(4) //	make(map[int]int, 4)
 	for i := 0; i < 100; i++ {
 		m.Put(i, i)
 	}
@@ -546,7 +546,7 @@ func TestIterGrowAndDelete1(t *testing.T) {
 // make sure old bucket arrays don't get GCd while
 // an iterator is still using them.
 func TestIterGrowWithGC(t *testing.T) {
-	m := NewConcurrentMap1(4) //	make(map[int]int, 4)
+	m := NewConcurrentMap(4) //	make(map[int]int, 4)
 	for i := 0; i < 16; i++ {
 		m.Put(i, i)
 	}
@@ -623,7 +623,7 @@ func TestBigItems(t *testing.T) {
 	for i := 0; i < 256; i++ {
 		key[i] = "foo"
 	}
-	m := NewConcurrentMap1(4) //make(map[[256]string][256]string, 4)
+	m := NewConcurrentMap(4) //make(map[[256]string][256]string, 4)
 	for i := 0; i < 100; i++ {
 		key[37] = fmt.Sprintf("string%02d", i)
 		m.Put(key, key) //m[key] = key
@@ -660,9 +660,9 @@ func TestEmptyKeyAndValue(t *testing.T) {
 	//a := make(map[int]empty, 4)
 	//b := make(map[empty]int, 4)
 	//c := make(map[empty]empty, 4)
-	a := NewConcurrentMap1(4)
-	b := NewConcurrentMap1(4)
-	c := NewConcurrentMap1(4)
+	a := NewConcurrentMap(4)
+	b := NewConcurrentMap(4)
+	c := NewConcurrentMap(4)
 	a.Put(0, empty{})       //a[0] = empty{}
 	b.Put(empty{}, 0)       //b[empty{}] = 0
 	b.Put(empty{}, 1)       //b[empty{}] = 1

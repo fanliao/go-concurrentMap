@@ -35,27 +35,46 @@ for itr.HasNext() {
 	entry := itr.NextEntry()
 	k, v := entry.Key(), entry.Value()
 }
+
+//new concurrentMap with specified initial capacity
+m = concurrent.NewConcurrentMap(32)
+
+//new concurrentMap with specified initial capacity and load factor
+m = concurrent.NewConcurrentMap(32, 0.75)
+
+//new concurrentMap with specified initial capacity, load factor and concurrent level
+m = concurrent.NewConcurrentMap(32, 0.75, 16)
+
+//new concurrentMap with the same mappings as the given map
+m = concurrent.NewConcurrentMapFromMap(map[interface{}]interface{}{
+		"x":                      "x1val",
+		"xx":                     "x2val",
+	})
 ```
 
 ## Performance
 
-The CPU information for performance testing: Xeon E3-1230V3 3.30GHZ
-
+Below are the parameters and CPU of benchmark testing:  
+Xeon E3-1230V3 3.30GHZ
 Max number of procs is 8，number of goroutines is 9，every goroutines will put or get 100,000 key-value pairs.
 
 I used LockMap to compare the performance, it is a implement that uses the RWMutex to synchronize. The below are the test results:
 
-* LockMap Put ------------------------- 386.822120 ms/op 
+* LockMap Put ------------------------- 480.000 ms/op 
 
-* ConcurrentMap Put ------------------ 99.955715 ms/op
+* ConcurrentMap Put ------------------- 130.207 ms/op
 
-* LockMap Get -------------------------- 45.642610 ms/op 
+* LockMap Get -------------------------- 45.643 ms/op 
 
-* ConcurrentMap Get ------------------ 60.583466 ms/op
+* ConcurrentMap Get -------------------- 69.464 ms/op
 
-* LockMap PutAndGet---------------- 620.546950 ms/op 
+* LockMap PutAndGet------------------ 589.534 ms/op 
 
-* ConcurrentMap PutAndGet ------- 138.507920 ms/op
+* ConcurrentMap PutAndGet ------------ 183.610 ms/op
+
+Note the performance of LockMap's Get operation is better than concurrentMap, the reason is that RWMutex supports parallel read. But if multiple threads put and get at same time, ConcurrentMap will be better than LockMap.
+
+According the benchmark testing, the performance of parallel put/get operation can be improved about 300% in four core CPU. 
 
 ## License
 

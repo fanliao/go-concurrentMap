@@ -88,22 +88,6 @@ func (this *ConcurrentMap) segmentFor(hash uint32) *Segment {
 }
 
 /**
- * Creates a new map with the same mappings as the given map.
- * The map is created with a capacity of 1.5 times the number
- * of mappings in the given map or 16 (whichever is greater),
- * and a default load factor (0.75) and concurrencyLevel (16).
- *
- * @param m the map
- */
-func NewConcurrentMapFromMap(m map[interface{}]interface{}) *ConcurrentMap {
-	cm := NewConcurrentMap3(int(math.Max(float64(float32(len(m))/DEFAULT_LOAD_FACTOR+1),
-		float64(DEFAULT_INITIAL_CAPACITY))),
-		DEFAULT_LOAD_FACTOR, DEFAULT_CONCURRENCY_LEVEL)
-	cm.PutAll(m)
-	return cm
-}
-
-/**
  * Returns true if this map contains no key-value mappings.
  */
 func (this *ConcurrentMap) IsEmpty() bool {
@@ -374,26 +358,7 @@ func (this *ConcurrentMap) Iterator() *MapIterator {
 	return NewMapIterator(this)
 }
 
-/**
- * Creates a new, empty map with the specified initial
- * capacity, load factor and concurrency level.
- *
- * @param initialCapacity the initial capacity. The implementation
- * performs internal sizing to accommodate this many elements.
- *
- * @param loadFactor  the load factor threshold, used to control resizing.
- * Resizing may be performed when the average number of elements per
- * bin exceeds this threshold.
- *
- * @param concurrencyLevel the estimated number of concurrently
- * updating threads. The implementation performs internal sizing
- * to try to accommodate this many threads.
- *
- * panic error "IllegalArgumentException" if the initial capacity is
- * negative or the load factor or concurrencyLevel are
- * nonpositive.
- */
-func NewConcurrentMap3(initialCapacity int,
+func newConcurrentMap3(initialCapacity int,
 	loadFactor float32, concurrencyLevel int) (m *ConcurrentMap) {
 	m = &ConcurrentMap{}
 
@@ -438,8 +403,8 @@ func NewConcurrentMap3(initialCapacity int,
 }
 
 /**
- * Creates a new, empty map with the specified initial capacity,
- * and with specified initial capacity and concurrencyLevel (16).
+ * Creates a new, empty map with the specified initial
+ * capacity, load factor and concurrency level.
  *
  * @param initialCapacity the initial capacity. The implementation
  * performs internal sizing to accommodate this many elements.
@@ -448,23 +413,14 @@ func NewConcurrentMap3(initialCapacity int,
  * Resizing may be performed when the average number of elements per
  * bin exceeds this threshold.
  *
- */
-func NewConcurrentMap2(initialCapacity int, loadFactor float32) (m *ConcurrentMap) {
-	return NewConcurrentMap3(initialCapacity, loadFactor, DEFAULT_CONCURRENCY_LEVEL)
-}
-
-/**
- * Creates a new, empty map with the specified initial capacity,
- * and with default load factor (0.75) and concurrencyLevel (16).
+ * @param concurrencyLevel the estimated number of concurrently
+ * updating threads. The implementation performs internal sizing
+ * to try to accommodate this many threads.
  *
- * @param initialCapacity the initial capacity. The implementation
- * performs internal sizing to accommodate this many elements.
- */
-func NewConcurrentMap1(initialCapacity int) (m *ConcurrentMap) {
-	return NewConcurrentMap3(initialCapacity, DEFAULT_LOAD_FACTOR, DEFAULT_CONCURRENCY_LEVEL)
-}
-
-/**
+ * panic error "IllegalArgumentException" if the initial capacity is
+ * negative or the load factor or concurrencyLevel are
+ * nonpositive.
+ *
  * Creates a new, empty map with a default initial capacity (16),
  * load factor (0.75) and concurrencyLevel (16).
  */
@@ -492,7 +448,24 @@ func NewConcurrentMap(paras ...interface{}) (m *ConcurrentMap) {
 		}
 	}
 
-	return NewConcurrentMap3(cap, factor, concurrent_lvl)
+	m = newConcurrentMap3(cap, factor, concurrent_lvl)
+	return
+}
+
+/**
+ * Creates a new map with the same mappings as the given map.
+ * The map is created with a capacity of 1.5 times the number
+ * of mappings in the given map or 16 (whichever is greater),
+ * and a default load factor (0.75) and concurrencyLevel (16).
+ *
+ * @param m the map
+ */
+func NewConcurrentMapFromMap(m map[interface{}]interface{}) *ConcurrentMap {
+	cm := newConcurrentMap3(int(math.Max(float64(float32(len(m))/DEFAULT_LOAD_FACTOR+1),
+		float64(DEFAULT_INITIAL_CAPACITY))),
+		DEFAULT_LOAD_FACTOR, DEFAULT_CONCURRENCY_LEVEL)
+	cm.PutAll(m)
+	return cm
 }
 
 /**
@@ -528,6 +501,8 @@ func (this *Entry) storeValue(v *interface{}) {
 type Segment struct {
 	/**
 	 * The number of elements in this segment's region.
+	 * Must use atomic package's LoadInt32 and StoreInt32 functions to read/write this field
+	 * otherwise read operation may cannot read latest value
 	 */
 	count int32
 
@@ -558,7 +533,6 @@ type Segment struct {
 	 * The load factor for the hash table. Even though this value
 	 * is same for all segments, it is replicated to avoid needing
 	 * links to outer object.
-	 * @serial
 	 */
 	loadFactor float32
 
@@ -788,7 +762,6 @@ func (this *Segment) put(key interface{}, hash uint32, value interface{}, onlyIf
 		this.modCount++
 		tab[index] = unsafe.Pointer(&Entry{key, hash, unsafe.Pointer(&value), first})
 		atomic.StoreInt32(&this.count, c) // atomic write 这里可以保证对modCount和tab的修改不会被reorder到this.count之后
-		//this.count = c // write-volatile
 	}
 	return
 }
@@ -848,7 +821,6 @@ func newSegment(initialCapacity int, lf float32) (s *Segment) {
 	s.loadFactor = lf
 	table := make([]unsafe.Pointer, initialCapacity)
 	s.setTable(table)
-	//s.table = unsafe.Pointer(&table)
 	s.lock = new(sync.Mutex)
 	return
 }
@@ -870,7 +842,8 @@ func hash2(h uint32) uint32 {
 	//h += (h << 2) + (h << 14)
 	//return uint32(h ^ (h >> 16))
 
-	//Now all hashcode is created by FNVa, so will not poor quality hash functions
+	//Now all hashcode is created by FNVa, it isn't a poor quality hash function
+	//so I removes the hash operation for second time
 	return h
 }
 
