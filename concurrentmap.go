@@ -116,6 +116,10 @@ func (this *ConcurrentMap) IsEmpty() bool {
 	 * methods, which are the only other methods also susceptible
 	 * to ABA problems.
 	 */
+	 
+	 /*
+	  * 检查是否每个segment的count是否为0，并记录modCount和总和
+	  */
 	mc := make([]int32, len(segments))
 	var mcsum int32 = 0
 	for i := 0; i < len(segments); i++ {
