@@ -834,9 +834,10 @@ func TestMapIterOrder(t *testing.T) {
 
 /*----------------test concurrent-------------------------------*/
 func TestConcurrent(t *testing.T) {
-	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(runtime.NumCPU()))
-	writeN := 2
-	readN := 4
+	numCpu := runtime.NumCPU()
+	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(numCpu))
+	writeN := 2*numCpu + 1
+	readN := 3*numCpu + 1
 	n := 1000000
 	var repeat int32 = 0
 
@@ -903,7 +904,7 @@ func TestConcurrent(t *testing.T) {
 		}()
 	}
 
-	//Start a goroutines to count the size of concurrentMap and total number of repeated keys 
+	//Start a goroutines to count the size of concurrentMap and total number of repeated keys
 	//after all write goroutines are done
 	cLast := make(chan struct{})
 	go func() {
