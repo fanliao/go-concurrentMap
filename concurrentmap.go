@@ -51,8 +51,9 @@ const (
 )
 
 var (
-	NilKeyError   error = errors.New("Nil key error")
-	NilValueError error = errors.New("Nil value error")
+	NilKeyError     = errors.New("Nil key error")
+	NilValueError   = errors.New("Nil value error")
+	IllegalArgError = errors.New("IllegalArgumentException")
 )
 
 //segments is read-only, don't need synchronized
@@ -108,18 +109,9 @@ func NewConcurrentMapFromMap(m map[interface{}]interface{}) *ConcurrentMap {
 func (this *ConcurrentMap) IsEmpty() bool {
 	segments := this.segments
 	/*
-	 * keep track of per-segment modCounts to avoid ABA
-	 * problems in which an element in one segment was added and
-	 * in another removed during traversal, in which case the
-	 * table was never actually empty at any point. Note the
-	 * similar use of modCounts in the size() and containsValue()
-	 * methods, which are the only other methods also susceptible
-	 * to ABA problems.
+	 * if any segment count isn't zero, Map will be no empty.
+	 * 检查是否每个segment的count是否为0，并记录modCount和总和
 	 */
-	 
-	 /*
-	  * 检查是否每个segment的count是否为0，并记录modCount和总和
-	  */
 	mc := make([]int32, len(segments))
 	var mcsum int32 = 0
 	for i := 0; i < len(segments); i++ {
@@ -131,9 +123,12 @@ func (this *ConcurrentMap) IsEmpty() bool {
 		}
 	}
 
-	// If mcsum happens to be zero, then we know we got a snapshot
-	// before any modifications at all were made.  This is
-	// probably common enough to bother tracking.
+	/*
+	 * if mcsum isn't zero, then modification is made,
+	 * we will check per-segments count and if modCount be modified
+	 * to avoid ABA problems in which an element in one segment was added and
+	 * in another removed during traversal
+	 */
 	if mcsum != 0 {
 		for i := 0; i < len(segments); i++ {
 			if atomic.LoadInt32(&segments[i].count) != 0 || mc[i] != atomic.LoadInt32(&segments[i].modCount) {
@@ -152,6 +147,7 @@ func (this *ConcurrentMap) Size() int32 {
 	var sum int32 = 0
 	var check int32 = 0
 	mc := make([]int32, len(segments))
+
 	// Try a few times to get accurate count. On failure due to
 	// continuous async changes in table, resort to locking.
 	for k := 0; k < RETRIES_BEFORE_LOCK; k++ {
@@ -167,16 +163,23 @@ func (this *ConcurrentMap) Size() int32 {
 			for i := 0; i < len(segments); i++ {
 				check += atomic.LoadInt32(&segments[i].count)
 				if mc[i] != atomic.LoadInt32(&segments[i].modCount) {
-					check = -1 // force retry
+					//async change happens, force retry
+					check = -1 //
 					break
 				}
 			}
 		}
+
+		//twoice counts ar same, it means no async change,
+		//then will return sum
 		if check == sum {
 			break
 		}
 	}
-	if check != sum { // Resort to locking all segments
+
+	//async change happens in each loop
+	//lock all segments to get accurate count
+	if check != sum {
 		sum = 0
 		for i := 0; i < len(segments); i++ {
 			segments[i].lock.Lock()
@@ -194,7 +197,6 @@ func (this *ConcurrentMap) Size() int32 {
 /**
  * Returns the value to which the specified key is mapped,
  * or nil if this map contains no mapping for the key.
- *
  */
 func (this *ConcurrentMap) Get(key interface{}) (value interface{}, err error) {
 	if isNil(key) {
@@ -228,8 +230,8 @@ func (this *ConcurrentMap) ContainsKey(key interface{}) (found bool, err error) 
  * The value can be retrieved by calling the get method
  * with a key that is equal to the original key.
  *
- * @param key key with which the specified value is to be associated
- * @param value value to be associated with the specified key
+ * @param key with which the specified value is to be associated
+ * @param value to be associated with the specified key
  *
  * @return the previous value associated with key, or
  *         nil if there was no mapping for key
@@ -396,7 +398,7 @@ func NewConcurrentMap3(initialCapacity int,
 	m = &ConcurrentMap{}
 
 	if !(loadFactor > 0) || initialCapacity < 0 || concurrencyLevel <= 0 {
-		panic(errors.New("IllegalArgumentException"))
+		panic(IllegalArgError)
 	}
 
 	if concurrencyLevel > MAX_SEGMENTS {
@@ -466,8 +468,31 @@ func NewConcurrentMap1(initialCapacity int) (m *ConcurrentMap) {
  * Creates a new, empty map with a default initial capacity (16),
  * load factor (0.75) and concurrencyLevel (16).
  */
-func NewConcurrentMap() (m *ConcurrentMap) {
-	return NewConcurrentMap3(DEFAULT_INITIAL_CAPACITY, DEFAULT_LOAD_FACTOR, DEFAULT_CONCURRENCY_LEVEL)
+func NewConcurrentMap(paras ...interface{}) (m *ConcurrentMap) {
+	ok := false
+	cap := DEFAULT_INITIAL_CAPACITY
+	factor := DEFAULT_LOAD_FACTOR
+	concurrent_lvl := DEFAULT_CONCURRENCY_LEVEL
+
+	if len(paras) >= 1 {
+		if cap, ok = paras[0].(int); !ok {
+			panic(IllegalArgError)
+		}
+	}
+
+	if len(paras) >= 2 {
+		if factor, ok = paras[1].(float32); !ok {
+			panic(IllegalArgError)
+		}
+	}
+
+	if len(paras) >= 3 {
+		if concurrent_lvl, ok = paras[2].(int); !ok {
+			panic(IllegalArgError)
+		}
+	}
+
+	return NewConcurrentMap3(cap, factor, concurrent_lvl)
 }
 
 /**
@@ -480,7 +505,7 @@ func NewConcurrentMap() (m *ConcurrentMap) {
 type Entry struct {
 	key   interface{}
 	hash  uint32
-	value unsafe.Pointer //interface{}
+	value unsafe.Pointer
 	next  *Entry
 }
 
@@ -530,7 +555,7 @@ type Segment struct {
 	pTable unsafe.Pointer //point to []unsafe.Pointer
 
 	/**
-	 * The load factor for the hash table.  Even though this value
+	 * The load factor for the hash table. Even though this value
 	 * is same for all segments, it is replicated to avoid needing
 	 * links to outer object.
 	 * @serial
