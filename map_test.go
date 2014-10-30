@@ -837,7 +837,7 @@ func TestConcurrent(t *testing.T) {
 	numCpu := runtime.NumCPU()
 	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(numCpu))
 	writeN := 2*numCpu + 1
-	readN := 3*numCpu + 1
+	readN := 2*numCpu + 1
 	n := 1000000
 	var repeat int32 = 0
 
