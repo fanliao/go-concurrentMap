@@ -538,7 +538,7 @@ func (this *Segment) rehash() {
 			}
 		}
 	}
-	this.pTable = unsafe.Pointer(&newTable)
+	atomic.StorePointer(&this.pTable, unsafe.Pointer(&newTable))
 }
 
 /**
