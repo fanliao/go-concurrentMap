@@ -218,19 +218,6 @@ func TestEmptyInterface(t *testing.T) {
 	}
 }
 
-type user struct {
-	id   string
-	name string
-}
-
-func (u *user) Id() string {
-	return u.id
-}
-
-type Ider interface {
-	Id() string
-}
-
 func TestInterface(t *testing.T) {
 	var a, b, c, d Ider = &user{"1", "n1"}, &user{"2", "n2"}, &user{"3", "n3"}, &user{"4", "n4"}
 	testConcurrentMap(t, map[interface{}]interface{}{
@@ -247,11 +234,6 @@ func TestInterface(t *testing.T) {
 	if v, err := cm.Get(e); v != 10 || err != nil {
 		t.Errorf("Get %v, return %v, %v, want %v", &e, v, err, 10)
 	}
-}
-
-type small struct {
-	id   byte
-	name byte
 }
 
 func TestSmallStruct(t *testing.T) {
@@ -415,11 +397,6 @@ func TestGrowWithNaN(t *testing.T) {
 	if s != 7 {
 		t.Error("NaN values lost during grow")
 	}
-}
-
-type FloatInt struct {
-	x float64
-	y int
 }
 
 func TestGrowWithNegativeZero(t *testing.T) {
@@ -651,9 +628,6 @@ func TestBigItems(t *testing.T) {
 			t.Errorf("#%d: missing value: %v", i, values[i])
 		}
 	}
-}
-
-type empty struct {
 }
 
 func TestEmptyKeyAndValue(t *testing.T) {

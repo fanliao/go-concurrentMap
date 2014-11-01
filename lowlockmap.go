@@ -2,6 +2,7 @@ package concurrent
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -47,6 +48,7 @@ func (this *LowLockingMap) segmentFor(hash uint32) *LowLockingSegment {
 	//默认segmentShift是28，segmentMask是（0xFFFFFFF）,hash>>this.segmentShift就是取前面4位
 	//&segmentMask似乎没有必要
 	//get first four bytes
+	fmt.Println("(hash>>this.segmentShift):", (hash >> this.segmentShift))
 	return this.segments[(hash>>this.segmentShift)&uint32(this.segmentMask)]
 }
 
@@ -114,6 +116,7 @@ func (this *LowLockingMap) Put(key interface{}, value interface{}) (previous int
 		return nil, NilValueError
 	}
 	hash := hash2(hashI(key))
+	fmt.Println("key:", key, ", hash:", hash)
 	previous = this.segmentFor(hash).put(key, hash, value, false)
 	return
 }
@@ -421,24 +424,31 @@ type LowLockingSegment struct {
 }
 
 func (this *LowLockingSegment) rehash() {
-	oldTable := this.table() //*(*[]*Entry)(this.table)
-	oldCapacity := len(oldTable)
-	if oldCapacity >= MAXIMUM_CAPACITY {
-		return
-	}
+	this.lock.Lock()
+	defer this.lock.Unlock()
 
-	newTable := make([]unsafe.Pointer, oldCapacity<<1)
-	atomic.StoreInt32(&this.threshold, int32(float32(len(newTable))*this.loadFactor))
-	for i := 0; i < oldCapacity; i++ {
-		// We need to guarantee that any existing reads of old Map can
-		//  proceed. So we cannot yet nil out each bin.
-		e := (*LowLockingEntry)(oldTable[i])
-
-		if e != nil {
-			put(newTable, e, true)
+	fmt.Println("rehash1")
+	if atomic.LoadInt32(&this.count) > this.threshold { // double check
+		oldTable := this.table() //*(*[]*Entry)(this.table)
+		oldCapacity := len(oldTable)
+		if oldCapacity >= MAXIMUM_CAPACITY {
+			return
 		}
+
+		newTable := make([]unsafe.Pointer, oldCapacity<<1)
+		atomic.StoreInt32(&this.threshold, int32(float32(len(newTable))*this.loadFactor))
+		for i := 0; i < oldCapacity; i++ {
+			// We need to guarantee that any existing reads of old Map can
+			//  proceed. So we cannot yet nil out each bin.
+			e := (*LowLockingEntry)(oldTable[i])
+
+			if e != nil {
+				put(newTable, e, true)
+			}
+			fmt.Println("rehash1", i)
+		}
+		atomic.StorePointer(&this.pTable, unsafe.Pointer(&newTable))
 	}
-	atomic.StorePointer(&this.pTable, unsafe.Pointer(&newTable))
 }
 
 /**
@@ -447,6 +457,7 @@ func (this *LowLockingSegment) rehash() {
  */
 func (this *LowLockingSegment) setTable(newTable []unsafe.Pointer) {
 	this.threshold = (int32)(float32(len(newTable)) * this.loadFactor)
+	fmt.Println("newTable:", newTable, "threshold:", this.threshold, (int32)(float32(len(newTable))*this.loadFactor))
 	this.pTable = unsafe.Pointer(&newTable)
 }
 
@@ -503,6 +514,7 @@ func (this *LowLockingSegment) get(key interface{}, hash uint32) interface{} {
 			if e == nil {
 				return nil
 			} else if e == DELETED {
+				idx = (idx + 1) & lenT
 				continue
 			} else if e.key == key {
 				return e.Value()
@@ -524,6 +536,7 @@ func (this *LowLockingSegment) containsKey(key interface{}, hash uint32) bool {
 			if e == nil {
 				return false
 			} else if e == DELETED {
+				idx = (idx + 1) & lenT
 				continue
 			} else if e.key == key {
 				return true
@@ -535,7 +548,8 @@ func (this *LowLockingSegment) containsKey(key interface{}, hash uint32) bool {
 }
 
 func (this *LowLockingSegment) replaceWithOld(key interface{}, hash uint32, oldValue interface{}, newValue interface{}) (replaced bool) {
-	tab := this.loadTable()
+	pTable := atomic.LoadPointer(&this.pTable)
+	tab := *(*[]unsafe.Pointer)(pTable)
 	lenT := uint32(len(tab) - 1)
 	idx := hash & lenT
 
@@ -545,6 +559,7 @@ func (this *LowLockingSegment) replaceWithOld(key interface{}, hash uint32, oldV
 		if e == nil {
 			return false
 		} else if e == DELETED {
+			idx = (idx + 1) & lenT
 			continue
 		} else if e.key == key {
 			pv := atomic.LoadPointer(&e.value)
@@ -553,6 +568,18 @@ func (this *LowLockingSegment) replaceWithOld(key interface{}, hash uint32, oldV
 				//如果CAS成功则replace成功，
 				//如果CAS失败，说明其他线程已经先更新了value，那么本次replace仍然可以视为成功（相当于replace成功后又被覆盖)
 				atomic.CompareAndSwapPointer(&e.value, pv, unsafe.Pointer(&newValue))
+				//这里没有判断e是否还是idx对应的节点，原因参考replace函数内的说明
+
+				//如果CAS成功，还要判断this.pTable有没有被修改（rehash会修改pTable），
+				//如果有的话上面的CAS实际是将值赋到了旧的table中，所以要重新进行put
+				if atomic.LoadPointer(&this.pTable) != pTable {
+					//重新对新table进行put操作，这里不会导致无限循环，因为随着hashtable的扩容，扩容后的hashtable又立刻填满的几率很小
+					pTable = atomic.LoadPointer(&this.pTable)
+					tab = *(*[]unsafe.Pointer)(pTable)
+					lenT = uint32(len(tab) - 1)
+					idx = hash & lenT
+					continue
+				}
 				replaced = true
 			}
 			return
@@ -562,7 +589,8 @@ func (this *LowLockingSegment) replaceWithOld(key interface{}, hash uint32, oldV
 }
 
 func (this *LowLockingSegment) replace(key interface{}, hash uint32, newValue interface{}) (oldValue interface{}) {
-	tab := this.loadTable()
+	pTable := atomic.LoadPointer(&this.pTable)
+	tab := *(*[]unsafe.Pointer)(pTable)
 	lenT := uint32(len(tab) - 1)
 	idx := hash & lenT
 
@@ -572,9 +600,25 @@ func (this *LowLockingSegment) replace(key interface{}, hash uint32, newValue in
 		if e == nil {
 			return false
 		} else if e == DELETED {
+			idx = (idx + 1) & lenT
 			continue
 		} else if e.key == key {
-			return atomic.SwapPointer(&e.value, unsafe.Pointer(&newValue))
+			//这里没有判断e是否还是idx对应的节点，因为如果idx对应的节点被替换，
+			//那么只能被替换到DELETE
+			//这种情况下replace的是旧节点的value
+			//我们视其为在替换操作后执行remove，不影响结果的最终正确性（旧节点已经被remove）
+			oldValue = atomic.SwapPointer(&e.value, unsafe.Pointer(&newValue))
+
+			//如果CAS成功，还要判断this.pTable有没有被修改（rehash会修改pTable），
+			//如果有的话上面的CAS实际是将值赋到了旧的table中，所以要重新进行put
+			if atomic.LoadPointer(&this.pTable) != pTable {
+				//重新对新table进行put操作，这里不会导致无限循环，因为随着hashtable的扩容，扩容后的hashtable又立刻填满的几率很小
+				pTable = atomic.LoadPointer(&this.pTable)
+				tab = *(*[]unsafe.Pointer)(pTable)
+				lenT = uint32(len(tab) - 1)
+				idx = hash & lenT
+				continue
+			}
 		}
 		idx = (idx + 1) & lenT
 	}
@@ -589,10 +633,11 @@ func (this *LowLockingSegment) put(key interface{}, hash uint32, value interface
 	tab := *(*[]unsafe.Pointer)(pTable)
 	lenT := uint32(len(tab) - 1)
 	idx := hash & lenT
-	var pNewEntry unsafe.Pointer = unsafe.Pointer(&LowLockingEntry{key, hash, unsafe.Pointer(&value), nil})
+	start := idx
+	var pNewEntry unsafe.Pointer = nil
 
-	c := this.count
-	if c > this.threshold { // ensure capacity
+	if atomic.LoadInt32(&this.count) > atomic.LoadInt32(&this.threshold) { // ensure capacity
+		fmt.Println("rehash")
 		this.rehash()
 	}
 
@@ -600,47 +645,67 @@ func (this *LowLockingSegment) put(key interface{}, hash uint32, value interface
 	for {
 		pe := atomic.LoadPointer(&tab[idx])
 		e := (*LowLockingEntry)(pe)
-		if e == nil || e == DELETED {
-			//if pNewEntry == nil {
-			//	pNewEntry = unsafe.Pointer(&LowLockingEntry{key, hash, unsafe.Pointer(&value), nil})
-			//}
-			//nil和DELETED都表示这个index上没有key-value pair
+		fmt.Println("eaaasa:", e, ", idx:", idx, ", lenT:", lenT, ", count:", this.count, ", threshold:", this.threshold)
+		if e == DELETED {
+			fmt.Println("put1")
+			idx = (idx + 1) & lenT
+			continue
+		} else if e == nil {
+			fmt.Println("put22")
+			//key不存在
+			if pNewEntry == nil {
+				pNewEntry = unsafe.Pointer(&LowLockingEntry{key, hash, unsafe.Pointer(&value), nil})
+			}
+			fmt.Println("put2")
+			//nil表示这个index上没有key-value pair
 			oldValue = nil
 			if atomic.CompareAndSwapPointer(&tab[idx], pe, pNewEntry) {
+				fmt.Println("put2.1")
 				//如果CAS成功，还要判断this.pTable有没有被修改（rehash会修改pTable），
 				//如果有的话上面的CAS实际是将值赋到了旧的table中，所以要重新进行put
 				if atomic.LoadPointer(&this.pTable) != pTable {
-					//重新对新table进行put操作，这里不会导致无限循环，因为扩容后的hashtable又立刻填满的几率很小
+					fmt.Println("put2.2")
+					//重新对新table进行put操作，这里不会导致无限循环，因为随着hashtable的扩容，扩容后的hashtable又立刻填满的几率很小
 					pTable = atomic.LoadPointer(&this.pTable)
 					tab = *(*[]unsafe.Pointer)(pTable)
 					lenT = uint32(len(tab) - 1)
 					idx = hash & lenT
+					fmt.Println("continue1")
 					continue
 				} else {
+					fmt.Println("put2.3")
 					//put成功，增加count
 					atomic.AddInt32(&this.count, 1) //注意这里不能使用局部变量c，因为其他线程可能会修改count
 					atomic.AddInt32(this.sumCount, 1)
+					return
 				}
 			}
 			//如果CAS失败，说明这个idx已经被其他key-value pair占据，将index++重新进行判断
 		} else if e.key == key {
+			fmt.Println("put3")
 			if !onlyIfAbsent {
-				//如果CAS成功则put成功，
-				//如果CAS失败，说明其他线程已经先更新了value或者删除了这个节点，那么要从当前位置重新开始判断
-				if atomic.CompareAndSwapPointer(&tab[idx], pe, pNewEntry) {
+				fmt.Println("put3.1")
+				ov := e.value
+				//如果CAS成功又有两种情况，如果idx位置的节点未改变，则put成功，否则idx对应的节点已经被删除，我们视为put后执行了remove操作，无须再次尝试put
+				//如果CAS失败，说明其他线程已经先更新了value，那么要从当前位置重新开始判断
+				if atomic.CompareAndSwapPointer(&e.value, ov, unsafe.Pointer(&value)) {
+					fmt.Println("put3.2")
 					//如果CAS成功，还要判断this.pTable有没有被修改（rehash会修改pTable），
 					//如果有的话上面的CAS实际是将值赋到了旧的table中，所以要重新进行put
 					if atomic.LoadPointer(&this.pTable) != pTable {
+						fmt.Println("put3.3")
 						//重新对新table进行put操作，这里不会导致无限循环，因为扩容后的hashtable又立刻填满的几率很小
 						pTable = atomic.LoadPointer(&this.pTable)
 						tab = *(*[]unsafe.Pointer)(pTable)
 						lenT = uint32(len(tab) - 1)
 						idx = hash & lenT
+						fmt.Println("continue2")
 						continue
 					}
-					old := atomic.LoadPointer(&e.value)
-					oldValue = *(*interface{})(old)
+					oldValue = ov
+					return
 				} else {
+					fmt.Println("continue3")
 					continue
 				}
 
@@ -648,6 +713,11 @@ func (this *LowLockingSegment) put(key interface{}, hash uint32, value interface
 			return
 		}
 		idx = (idx + 1) & lenT
+		fmt.Println("put4, idx:", idx)
+		if idx == start {
+			panic("aaaaaa")
+			return
+		}
 	}
 
 	//this.lock.Lock()
@@ -692,32 +762,13 @@ func (this *LowLockingSegment) remove(key interface{}, hash uint32, value interf
 		if e == nil {
 			return false
 		} else if e == DELETED {
+			idx = (idx + 1) & lenT
 			continue
 		} else if e.key == key {
-			if value != nil {
-				pv := atomic.LoadPointer(&e.value)
-				//ABA?
-				if *((*interface{})(pv)) == value {
-					if atomic.CompareAndSwapPointer(&tab[idx], pe, unsafe.Pointer(&DELETED)) {
-						//如果CAS成功，还要判断this.pTable有没有被修改（rehash会修改pTable），
-						//如果有的话上面的CAS实际是从旧的table中remove，所以要重新进行remove
-						if atomic.LoadPointer(&this.pTable) != pTable {
-							//重新对新table进行put操作，这里不会导致无限循环，因为扩容后的hashtable又立刻填满的几率很小
-							pTable = atomic.LoadPointer(&this.pTable)
-							tab = *(*[]unsafe.Pointer)(pTable)
-							lenT = uint32(len(tab) - 1)
-							idx = hash & lenT
-							continue
-						} else {
-							//remove成功，减少count
-							atomic.AddInt32(&this.count, -1) //注意这里不能使用局部变量c，因为其他线程可能会修改count
-							atomic.AddInt32(this.sumCount, -1)
-							return
-						}
-					}
-					//如果CAS失败，说明这个idx已经被其他key-value pair占据，将index++重新进行判断
-				}
-			} else {
+			oldValue = *(*interface{})(atomic.LoadPointer(&e.value))
+			if value == nil || (value != nil && oldValue == value) {
+				//pv := atomic.LoadPointer(&e.value)
+				//if *((*interface{})(pv)) == value {
 				if atomic.CompareAndSwapPointer(&tab[idx], pe, unsafe.Pointer(&DELETED)) {
 					//如果CAS成功，还要判断this.pTable有没有被修改（rehash会修改pTable），
 					//如果有的话上面的CAS实际是从旧的table中remove，所以要重新进行remove
@@ -732,11 +783,31 @@ func (this *LowLockingSegment) remove(key interface{}, hash uint32, value interf
 						//remove成功，减少count
 						atomic.AddInt32(&this.count, -1) //注意这里不能使用局部变量c，因为其他线程可能会修改count
 						atomic.AddInt32(this.sumCount, -1)
-						return
 					}
 				}
-				//如果CAS失败，说明这个idx已经被其他key-value pair占据，将index++重新进行判断
+				//如果CAS失败，说明这个idx已经被其他线程remove
+				return
 			}
+			//} else {
+			//	if atomic.CompareAndSwapPointer(&tab[idx], pe, unsafe.Pointer(&DELETED)) {
+			//		//如果CAS成功，还要判断this.pTable有没有被修改（rehash会修改pTable），
+			//		//如果有的话上面的CAS实际是从旧的table中remove，所以要重新进行remove
+			//		if atomic.LoadPointer(&this.pTable) != pTable {
+			//			//重新对新table进行put操作，这里不会导致无限循环，因为扩容后的hashtable又立刻填满的几率很小
+			//			pTable = atomic.LoadPointer(&this.pTable)
+			//			tab = *(*[]unsafe.Pointer)(pTable)
+			//			lenT = uint32(len(tab) - 1)
+			//			idx = hash & lenT
+			//			continue
+			//		} else {
+			//			//remove成功，减少count
+			//			atomic.AddInt32(&this.count, -1) //注意这里不能使用局部变量c，因为其他线程可能会修改count
+			//			atomic.AddInt32(this.sumCount, -1)
+			//			return
+			//		}
+			//	}
+			//	//如果CAS失败，说明这个idx已经被其他key-value pair占据，将index++重新进行判断
+			//}
 		}
 		idx = (idx + 1) & lenT
 	}
@@ -792,7 +863,8 @@ func (this *LowLockingSegment) clear() {
 func (this *LowLockingMap) newSegment(initialCapacity int, lf float32) (s *LowLockingSegment) {
 	s = new(LowLockingSegment)
 	s.loadFactor = lf
-	table := make([]unsafe.Pointer, initialCapacity)
+	table := make([]unsafe.Pointer, initialCapacity, initialCapacity)
+	fmt.Println("lenT", initialCapacity, "lf", lf, len(table))
 	s.setTable(table)
 	s.lock = new(sync.Mutex)
 	s.sumCount = &this.count
@@ -805,49 +877,50 @@ type LowLockingMapIterator struct {
 	nextSegmentIndex int
 	nextTableIndex   int
 	currentTable     []unsafe.Pointer
-	nextEntry        *Entry
-	lastReturned     *Entry
+	nextEntry        *LowLockingEntry
+	lastReturned     *LowLockingEntry
 	cm               *LowLockingMap
 }
 
 func (this *LowLockingMapIterator) advance() {
-	if this.nextEntry != nil {
-		this.nextEntry = this.nextEntry.next
-		if this.nextEntry != nil {
-			return
-		}
-	}
-
+	fmt.Println("nextTableIndex=", this.nextTableIndex)
 	for this.nextTableIndex >= 0 {
-		this.nextEntry = (*Entry)(atomic.LoadPointer(&this.currentTable[this.nextTableIndex]))
+		this.nextEntry = (*LowLockingEntry)(atomic.LoadPointer(&this.currentTable[this.nextTableIndex]))
 		this.nextTableIndex--
-		if this.nextEntry != nil {
+		if this.nextEntry != nil && this.nextEntry != DELETED {
 			return
 		}
 	}
 
+	fmt.Println("nextSegmentIndex=", this.nextSegmentIndex)
 	for this.nextSegmentIndex >= 0 {
 		seg := this.cm.segments[this.nextSegmentIndex]
 		this.nextSegmentIndex--
+		fmt.Println("seg.count=", atomic.LoadInt32(&seg.count))
 		if atomic.LoadInt32(&seg.count) != 0 {
 			this.currentTable = seg.loadTable()
 			for j := len(this.currentTable) - 1; j >= 0; j-- {
-				this.nextEntry = (*Entry)(atomic.LoadPointer(&this.currentTable[j]))
-				if this.nextEntry != nil {
+				fmt.Println("j=", j, ", len(this.currentTable)=", len(this.currentTable))
+				this.nextEntry = (*LowLockingEntry)(atomic.LoadPointer(&this.currentTable[j]))
+				fmt.Println("nextEntry=", this.nextEntry)
+				if this.nextEntry != nil && this.nextEntry != DELETED {
 					this.nextTableIndex = j - 1
 					return
 				}
 			}
 		}
 	}
+
+	this.nextEntry = nil
 }
 
 func (this *LowLockingMapIterator) HasNext() bool {
-	return this.nextEntry != nil
+	fmt.Println("next:", this.nextEntry, this.nextEntry != DELETED)
+	return this.nextEntry != nil && this.nextEntry != DELETED
 }
 
-func (this *LowLockingMapIterator) NextEntry() *Entry {
-	if this.nextEntry == nil {
+func (this *LowLockingMapIterator) NextEntry() *LowLockingEntry {
+	if this.nextEntry == nil || this.nextEntry == DELETED {
 		panic(errors.New("NoSuchElementException"))
 	}
 	this.lastReturned = this.nextEntry
@@ -856,7 +929,7 @@ func (this *LowLockingMapIterator) NextEntry() *Entry {
 }
 
 func (this *LowLockingMapIterator) Remove() {
-	if this.lastReturned == nil {
+	if this.lastReturned == nil || this.nextEntry == DELETED {
 		panic("IllegalStateException")
 	}
 	this.cm.Remove(this.lastReturned.key)
