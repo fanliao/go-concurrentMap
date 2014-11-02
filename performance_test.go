@@ -13,7 +13,7 @@ var (
 	listN  int
 	number int
 	list   [][]interface{}
-	readCM *ConcurrentMap
+	readCM *WLockingMap
 	readLM *lockMap
 	readM  map[interface{}]interface{}
 )
@@ -34,7 +34,7 @@ func init() {
 		list[i] = list1
 	}
 
-	readCM = NewConcurrentMap()
+	readCM = NewWLockingMap()
 	readM = make(map[interface{}]interface{})
 	readLM = newLockMap()
 	for i := range list[0] {
@@ -120,6 +120,25 @@ func BenchmarkMapPut(b *testing.B) {
 	}
 }
 
+func BenchmarkWLockingMapPut(b *testing.B) {
+	for n := 0; n < b.N; n++ {
+		cm := NewWLockingMap()
+
+		wg := new(sync.WaitGroup)
+		wg.Add(listN)
+		for i := 0; i < listN; i++ {
+			k := i
+			go func() {
+				for _, j := range list[k] {
+					cm.Put(j, j)
+				}
+				wg.Done()
+			}()
+		}
+		wg.Wait()
+	}
+}
+
 func BenchmarkConcurrentMapPut(b *testing.B) {
 	for n := 0; n < b.N; n++ {
 		cm := NewConcurrentMap()
@@ -173,6 +192,25 @@ func BenchmarkMapPutNoGrow(b *testing.B) {
 	}
 }
 
+func BenchmarkWLockingMapPutNoGrow(b *testing.B) {
+	for n := 0; n < b.N; n++ {
+		cm := NewWLockingMap(listN * number)
+
+		wg := new(sync.WaitGroup)
+		wg.Add(listN)
+		for i := 0; i < listN; i++ {
+			k := i
+			go func() {
+				for _, j := range list[k] {
+					cm.Put(j, j)
+				}
+				wg.Done()
+			}()
+		}
+		wg.Wait()
+	}
+}
+
 func BenchmarkConcurrentMapPutNoGrow(b *testing.B) {
 	for n := 0; n < b.N; n++ {
 		cm := NewConcurrentMap(listN * number)
@@ -223,6 +261,25 @@ func BenchmarkMapPut2(b *testing.B) {
 			}
 			//wg.Done()
 		}
+	}
+}
+
+func BenchmarkWLockingMapPut2(b *testing.B) {
+	for n := 0; n < b.N; n++ {
+		cm := NewWLockingMap()
+
+		wg := new(sync.WaitGroup)
+		wg.Add(listN)
+		for i := 0; i < listN; i++ {
+			k := i
+			go func() {
+				for _, j := range list[k] {
+					cm.Put(strconv.Itoa(j.(int)), j)
+				}
+				wg.Done()
+			}()
+		}
+		wg.Wait()
 	}
 }
 
@@ -328,6 +385,26 @@ func BenchmarkMapPutAndGet(b *testing.B) {
 			}
 			//wg.Done()
 		}
+	}
+}
+
+func BenchmarkWLockingMapPutAndGet(b *testing.B) {
+	for n := 0; n < b.N; n++ {
+		cm := NewWLockingMap()
+
+		wg := new(sync.WaitGroup)
+		wg.Add(listN)
+		for i := 0; i < listN; i++ {
+			k := i
+			go func() {
+				for _, j := range list[k] {
+					cm.Put(j, j)
+					_, _ = cm.Get(j)
+				}
+				wg.Done()
+			}()
+		}
+		wg.Wait()
 	}
 }
 

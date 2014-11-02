@@ -12,40 +12,40 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	//"sync/atomic"
+	"sync/atomic"
 	"testing"
-	//"time"
+	"time"
 )
 
-type user struct {
-	id   string
-	name string
-}
+//type user struct {
+//	id   string
+//	name string
+//}
 
-func (u *user) Id() string {
-	return u.id
-}
+//func (u *user) Id() string {
+//	return u.id
+//}
 
-type Ider interface {
-	Id() string
-}
+//type Ider interface {
+//	Id() string
+//}
 
-type small struct {
-	id   byte
-	name byte
-}
+//type small struct {
+//	id   byte
+//	name byte
+//}
 
-type FloatInt struct {
-	x float64
-	y int
-}
+//type FloatInt struct {
+//	x float64
+//	y int
+//}
 
-type empty struct {
-}
+//type empty struct {
+//}
 
-func TestNil(t *testing.T) {
+func TestNil_WLocking(t *testing.T) {
 	c.Convey("Nil cannot be as key", t, func() {
-		cm := NewConcurrentMap()
+		cm := NewWLockingMap()
 		_, err := cm.Put(nil, 1)
 		c.So(err, c.ShouldNotBeNil)
 
@@ -81,7 +81,7 @@ func TestNil(t *testing.T) {
 }
 
 /*-------------test different types as key------------------------*/
-func testConcurrentMap(t *testing.T, datas map[interface{}]interface{}) {
+func testConcurrentMap_WLocking(t *testing.T, datas map[interface{}]interface{}) {
 	var firstKey, firstVal interface{}
 	var secondaryKey, secondaryVal interface{}
 	i := 0
@@ -95,7 +95,7 @@ func testConcurrentMap(t *testing.T, datas map[interface{}]interface{}) {
 		i++
 	}
 
-	m := NewConcurrentMap()
+	m := NewWLockingMap()
 
 	//test Put first key-value pair
 	previou, err := m.Put(firstKey, firstVal)
@@ -106,7 +106,7 @@ func testConcurrentMap(t *testing.T, datas map[interface{}]interface{}) {
 	//test Put again
 	previou, err = m.Put(firstKey, firstVal)
 	if previou != firstVal || err != nil {
-		t.Errorf("Put %v, %v second time, return %v, %v, want %v, nil", firstKey, firstVal, previou, err, firstVal)
+		t.Errorf("Put %v, %v second time, return %v, %v, want %v, nil", firstKey, firstVal, firstVal, previou, err)
 	}
 
 	//test PutIfAbsent, if value is incorrect, PutIfAbsent will be ignored
@@ -143,32 +143,20 @@ func testConcurrentMap(t *testing.T, datas map[interface{}]interface{}) {
 
 	//test replace a value for a key
 	previou, err = m.Replace(secondaryKey, v)
-	v1, _ := m.Get(secondaryKey)
 	if previou != secondaryVal || err != nil {
 		t.Errorf("Replace %v, %v, return %v, %v, want %v, nil", secondaryKey, v, previou, err, secondaryVal)
-	}
-	if v1 == nil {
-		t.Errorf("cannot find %v", secondaryKey)
 	}
 
 	//test replace a value for a key-value pair, if value is incorrect, replace will ignored and return false
 	ok, err = m.CompareAndReplace(secondaryKey, secondaryVal, v)
-	v1, _ = m.Get(secondaryKey)
 	if ok != false || err != nil {
 		t.Errorf("ReplaceWithOld  %v, %v, %v, return %v, %v, want false, nil", secondaryKey, secondaryVal, v, ok, err)
-	}
-	if v1 == nil {
-		t.Errorf("cannot find %v", secondaryKey)
 	}
 
 	//test replace a value for a key-value pair, if value is correct, replace will success
 	ok, err = m.CompareAndReplace(secondaryKey, v, secondaryVal)
-	v1, _ = m.Get(secondaryKey)
 	if ok != true || err != nil {
 		t.Errorf("ReplaceWithOld %v, %v, %v, return %v, %v, want true, nil", secondaryKey, v, secondaryVal, ok, err)
-	}
-	if v1 == nil {
-		t.Errorf("cannot find %v", secondaryKey)
 	}
 
 	//test remove a key
@@ -184,8 +172,8 @@ func testConcurrentMap(t *testing.T, datas map[interface{}]interface{}) {
 	}
 }
 
-func TestIntKey(t *testing.T) {
-	testConcurrentMap(t, map[interface{}]interface{}{
+func TestIntKey_WLocking(t *testing.T) {
+	testConcurrentMap_WLocking(t, map[interface{}]interface{}{
 		1: 10,
 		2: 20,
 		3: 30,
@@ -193,8 +181,8 @@ func TestIntKey(t *testing.T) {
 	})
 }
 
-func TestStringKey(t *testing.T) {
-	testConcurrentMap(t, map[interface{}]interface{}{
+func TestStringKey_WLocking(t *testing.T) {
+	testConcurrentMap_WLocking(t, map[interface{}]interface{}{
 		strconv.Itoa(1): 10,
 		strconv.Itoa(2): 20,
 		strconv.Itoa(3): 30,
@@ -202,8 +190,8 @@ func TestStringKey(t *testing.T) {
 	})
 }
 
-func Testfloat32Key(t *testing.T) {
-	testConcurrentMap(t, map[interface{}]interface{}{
+func Testfloat32Key_WLocking(t *testing.T) {
+	testConcurrentMap_WLocking(t, map[interface{}]interface{}{
 		float32(1): 10,
 		float32(2): 20,
 		float32(3): 30,
@@ -211,8 +199,8 @@ func Testfloat32Key(t *testing.T) {
 	})
 }
 
-func Testfloat64Key(t *testing.T) {
-	testConcurrentMap(t, map[interface{}]interface{}{
+func Testfloat64Key_WLocking(t *testing.T) {
+	testConcurrentMap_WLocking(t, map[interface{}]interface{}{
 		float64(1): 10,
 		float64(2): 20,
 		float64(3): 30,
@@ -220,16 +208,16 @@ func Testfloat64Key(t *testing.T) {
 	})
 }
 
-func TestPtr(t *testing.T) {
+func TestPtr_WLocking(t *testing.T) {
 	a, b, c, d := 1, 2, 3, 4
-	testConcurrentMap(t, map[interface{}]interface{}{
+	testConcurrentMap_WLocking(t, map[interface{}]interface{}{
 		&a: 10,
 		&b: 20,
 		&c: 30,
 		&d: 40,
 	})
 
-	cm := NewConcurrentMap()
+	cm := NewWLockingMap()
 	cm.Put(&a, 10)
 
 	e := a
@@ -238,16 +226,16 @@ func TestPtr(t *testing.T) {
 	}
 }
 
-func TestEmptyInterface(t *testing.T) {
+func TestEmptyInterface_WLocking(t *testing.T) {
 	var a, b, c, d interface{} = 1, 2, 3, 4
-	testConcurrentMap(t, map[interface{}]interface{}{
+	testConcurrentMap_WLocking(t, map[interface{}]interface{}{
 		a: 10,
 		b: 20,
 		c: 30,
 		d: 40,
 	})
 
-	cm := NewConcurrentMap()
+	cm := NewWLockingMap()
 	cm.Put(a, 10)
 
 	e := a
@@ -256,9 +244,9 @@ func TestEmptyInterface(t *testing.T) {
 	}
 }
 
-func TestInterface(t *testing.T) {
+func TestInterface_WLocking(t *testing.T) {
 	var a, b, c, d Ider = &user{"1", "n1"}, &user{"2", "n2"}, &user{"3", "n3"}, &user{"4", "n4"}
-	testConcurrentMap(t, map[interface{}]interface{}{
+	testConcurrentMap_WLocking(t, map[interface{}]interface{}{
 		a: 10,
 		b: 20,
 		c: 30,
@@ -266,7 +254,7 @@ func TestInterface(t *testing.T) {
 	})
 
 	//test using the interface object and original value as key, two value should return the same hash code
-	cm := NewConcurrentMap()
+	cm := NewWLockingMap()
 	cm.Put(a, 10)
 	e := a.(*user)
 	if v, err := cm.Get(e); v != 10 || err != nil {
@@ -274,9 +262,9 @@ func TestInterface(t *testing.T) {
 	}
 }
 
-func TestSmallStruct(t *testing.T) {
+func TestSmallStruct_WLocking(t *testing.T) {
 	a, b, c, d := small{1, 1}, small{2, 2}, small{3, 3}, small{4, 4}
-	testConcurrentMap(t, map[interface{}]interface{}{
+	testConcurrentMap_WLocking(t, map[interface{}]interface{}{
 		a: 10,
 		b: 20,
 		c: 30,
@@ -284,7 +272,7 @@ func TestSmallStruct(t *testing.T) {
 	})
 
 	//test using the interface object and original value as key, two value should return the same hash code
-	cm := NewConcurrentMap()
+	cm := NewWLockingMap()
 	cm.Put(a, 10)
 	e := small{1, 1}
 	if v, err := cm.Get(e); v != 10 || err != nil {
@@ -292,30 +280,30 @@ func TestSmallStruct(t *testing.T) {
 	}
 }
 
-func TestUnableHash(t *testing.T) {
-	testHash := func(k interface{}) (err error) {
+func TestUnableHash_WLocking(t *testing.T) {
+	testHash_WLocking := func(k interface{}) (err error) {
 		defer func() {
 			if e := recover(); e != nil {
 				err = errors.New("")
 			}
 		}()
-		cm := NewConcurrentMap()
+		cm := NewWLockingMap()
 		cm.Put(k, 1)
 		return
 	}
 
-	err := testHash([]int{1})
+	err := testHash_WLocking([]int{1})
 	if err == nil {
 		t.Errorf("Put slice, return nil, should be not nil")
 	}
 
 	f := func() {}
-	err = testHash(f)
+	err = testHash_WLocking(f)
 	if err == nil {
 		t.Errorf("Put function, return nil, should be not nil")
 	}
 
-	err = testHash(map[int]int{1: 1})
+	err = testHash_WLocking(map[int]int{1: 1})
 	if err == nil {
 		t.Errorf("Put map, return nil, should be not nil")
 	}
@@ -376,8 +364,8 @@ func TestUnableHash(t *testing.T) {
 
 // nan is a good test because nan != nan, and nan has
 // a randomized hash value.
-func TestNan(t *testing.T) {
-	m := NewConcurrentMap(0) //make(map[float64]int, 0)
+func TestNan_WLocking(t *testing.T) {
+	m := NewWLockingMap(0) //make(map[float64]int, 0)
 	nan := math.NaN()
 	m.Put(nan, 1)
 	m.Put(nan, 2)
@@ -403,8 +391,8 @@ func TestNan(t *testing.T) {
 	}
 }
 
-func TestGrowWithNaN(t *testing.T) {
-	m := NewConcurrentMap(0) //make(map[float64]int, 0)
+func TestGrowWithNaN_WLocking(t *testing.T) {
+	m := NewWLockingMap(0) //make(map[float64]int, 0)
 	nan := math.NaN()
 	m.Put(nan, 1)
 	m.Put(nan, 2)
@@ -413,7 +401,7 @@ func TestGrowWithNaN(t *testing.T) {
 	s := 0
 	growflag := true
 
-	itr := NewMapIterator(m)
+	itr := NewWLockingMapIterator(m)
 	for itr.HasNext() {
 		entry := itr.NextEntry()
 		k, v := entry.Key().(float64), entry.Value().(int)
@@ -437,7 +425,7 @@ func TestGrowWithNaN(t *testing.T) {
 	}
 }
 
-func TestGrowWithNegativeZero(t *testing.T) {
+func TestGrowWithNegativeZero_WLocking(t *testing.T) {
 	negzero := math.Copysign(0.0, -1.0)
 	m := make(map[FloatInt]int, 4)
 	m[FloatInt{0.0, 0}] = 1
@@ -495,7 +483,7 @@ func TestGrowWithNegativeZero(t *testing.T) {
 	}
 }
 
-func TestIterGrowAndDelete(t *testing.T) {
+func TestIterGrowAndDelete_WLocking(t *testing.T) {
 	m := make(map[int]int, 4)
 	for i := 0; i < 100; i++ {
 		m[i] = i
@@ -521,53 +509,53 @@ func TestIterGrowAndDelete(t *testing.T) {
 	}
 }
 
-//func TestIterGrowAndDelete1(t *testing.T) {
-//	m := NewConcurrentMap(4) //	make(map[int]int, 4)
-//	for i := 0; i < 100; i++ {
-//		m.Put(i, i)
-//	}
-//	growflag := true
-//	itr := m.Iterator()
-//	for itr.HasNext() {
-//		entry := itr.NextEntry()
-//		k := entry.Key()
-//		//t.Log("k ad growflag111111", k, growflag)
-//		if growflag {
-//			// grow the table
-//			for i := 100; i < 1000; i++ {
-//				m.Put(i, i)
-//			}
-//			// delete all odd keys
-//			for i := 1; i < 1000; i += 2 {
-//				m.Remove(i)
-//			}
-//			growflag = false
-//		} else {
-//			if k.(int)&1 == 1 {
-//				itr := NewMapIterator(m)
-//				for itr.HasNext() {
-//					entry := itr.NextEntry()
-//					if entry.Key().(int)&1 == 1 {
-//						t.Error("odd value returned by itr")
-//					}
-//				}
-//				//ConcurrentMap cannot iterate the values changed outside iterator after grow
-//				//t.Error("odd value returned")
-//			}
-//		}
-//	}
-//}
+func TestIterGrowAndDelete1_WLocking(t *testing.T) {
+	m := NewWLockingMap(4) //	make(map[int]int, 4)
+	for i := 0; i < 100; i++ {
+		m.Put(i, i)
+	}
+	growflag := true
+	itr := m.Iterator()
+	for itr.HasNext() {
+		entry := itr.NextEntry()
+		k := entry.Key()
+		//t.Log("k ad growflag111111", k, growflag)
+		if growflag {
+			// grow the table
+			for i := 100; i < 1000; i++ {
+				m.Put(i, i)
+			}
+			// delete all odd keys
+			for i := 1; i < 1000; i += 2 {
+				m.Remove(i)
+			}
+			growflag = false
+		} else {
+			if k.(int)&1 == 1 {
+				itr := NewWLockingMapIterator(m)
+				for itr.HasNext() {
+					entry := itr.NextEntry()
+					if entry.Key().(int)&1 == 1 {
+						t.Error("odd value returned by itr")
+					}
+				}
+				//ConcurrentMap cannot iterate the values changed outside iterator after grow
+				//t.Error("odd value returned")
+			}
+		}
+	}
+}
 
 // make sure old bucket arrays don't get GCd while
 // an iterator is still using them.
-func TestIterGrowWithGC(t *testing.T) {
-	m := NewConcurrentMap(4) //	make(map[int]int, 4)
+func TestIterGrowWithGC_WLocking(t *testing.T) {
+	m := NewWLockingMap(4) //	make(map[int]int, 4)
 	for i := 0; i < 16; i++ {
 		m.Put(i, i)
 	}
 	growflag := true
 	bitmask := 0
-	itr := NewMapIterator(m)
+	itr := NewWLockingMapIterator(m)
 	for itr.HasNext() {
 		entry := itr.NextEntry()
 		k := entry.Key().(int)
@@ -589,7 +577,7 @@ func TestIterGrowWithGC(t *testing.T) {
 	}
 }
 
-func testConcurrentReadsAfterGrowth(t *testing.T, useReflect bool) {
+func testConcurrentReadsAfterGrowth_WLocking(t *testing.T, useReflect bool) {
 	if runtime.GOMAXPROCS(-1) == 1 {
 		defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(16))
 	}
@@ -600,7 +588,7 @@ func testConcurrentReadsAfterGrowth(t *testing.T, useReflect bool) {
 		numLoop, numGrowStep = 2, 500
 	}
 	for i := 0; i < numLoop; i++ {
-		m := NewConcurrentMap() //	make(map[int]int, 0)
+		m := NewWLockingMap() //	make(map[int]int, 0)
 		for gs := 0; gs < numGrowStep; gs++ {
 			m.Put(gs, gs)
 			var wg sync.WaitGroup
@@ -608,7 +596,7 @@ func testConcurrentReadsAfterGrowth(t *testing.T, useReflect bool) {
 			for nr := 0; nr < numReader; nr++ {
 				go func() {
 					defer wg.Done()
-					itr := NewMapIterator(m)
+					itr := NewWLockingMapIterator(m)
 					for itr.HasNext() {
 						_ = itr.NextEntry()
 					}
@@ -625,20 +613,20 @@ func testConcurrentReadsAfterGrowth(t *testing.T, useReflect bool) {
 	}
 }
 
-func TestConcurrentReadsAfterGrowth(t *testing.T) {
-	testConcurrentReadsAfterGrowth(t, false)
+func TestConcurrentReadsAfterGrowth_WLocking(t *testing.T) {
+	testConcurrentReadsAfterGrowth_WLocking(t, false)
 }
 
-func TestConcurrentReadsAfterGrowthReflect(t *testing.T) {
-	testConcurrentReadsAfterGrowth(t, true)
+func TestConcurrentReadsAfterGrowthReflect_WLocking(t *testing.T) {
+	testConcurrentReadsAfterGrowth_WLocking(t, true)
 }
 
-func TestBigItems(t *testing.T) {
+func TestBigItems_WLocking(t *testing.T) {
 	var key [256]string
 	for i := 0; i < 256; i++ {
 		key[i] = "foo"
 	}
-	m := NewConcurrentMap(4) //make(map[[256]string][256]string, 4)
+	m := NewWLockingMap(4) //make(map[[256]string][256]string, 4)
 	for i := 0; i < 100; i++ {
 		key[37] = fmt.Sprintf("string%02d", i)
 		m.Put(key, key) //m[key] = key
@@ -646,7 +634,7 @@ func TestBigItems(t *testing.T) {
 	var keys [100]string
 	var values [100]string
 	i := 0
-	itr := NewMapIterator(m)
+	itr := NewWLockingMapIterator(m)
 	for itr.HasNext() {
 		entry := itr.NextEntry()
 		k := entry.Key().([256]string)
@@ -668,13 +656,13 @@ func TestBigItems(t *testing.T) {
 	}
 }
 
-func TestEmptyKeyAndValue(t *testing.T) {
+func TestEmptyKeyAndValue_WLocking(t *testing.T) {
 	//a := make(map[int]empty, 4)
 	//b := make(map[empty]int, 4)
 	//c := make(map[empty]empty, 4)
-	a := NewConcurrentMap(4)
-	b := NewConcurrentMap(4)
-	c := NewConcurrentMap(4)
+	a := NewWLockingMap(4)
+	b := NewWLockingMap(4)
+	c := NewWLockingMap(4)
 	a.Put(0, empty{})       //a[0] = empty{}
 	b.Put(empty{}, 0)       //b[empty{}] = 0
 	b.Put(empty{}, 1)       //b[empty{}] = 1
@@ -690,8 +678,8 @@ func TestEmptyKeyAndValue(t *testing.T) {
 
 // Tests a map with a single bucket, with same-lengthed short keys
 // ("quick keys") as well as long keys.
-func TestSingleBucketMapStringKeys_DupLen(t *testing.T) {
-	testMapLookups(t, NewConcurrentMapFromMap(map[interface{}]interface{}{
+func TestSingleBucketMapStringKeys_DupLen_WLocking(t *testing.T) {
+	testMapLookups_WLocking(t, NewWLockingMapFromMap(map[interface{}]interface{}{
 		"x":    "x1val",
 		"xx":   "x2val",
 		"foo":  "fooval",
@@ -703,8 +691,8 @@ func TestSingleBucketMapStringKeys_DupLen(t *testing.T) {
 }
 
 // Tests a map with a single bucket, with all keys having different lengths.
-func TestSingleBucketMapStringKeys_NoDupLen(t *testing.T) {
-	testMapLookups(t, NewConcurrentMapFromMap(map[interface{}]interface{}{
+func TestSingleBucketMapStringKeys_NoDupLen_WLocking(t *testing.T) {
+	testMapLookups_WLocking(t, NewWLockingMapFromMap(map[interface{}]interface{}{
 		"x":                      "x1val",
 		"xx":                     "x2val",
 		"foo":                    "fooval",
@@ -715,8 +703,8 @@ func TestSingleBucketMapStringKeys_NoDupLen(t *testing.T) {
 	}))
 }
 
-func testMapLookups(t *testing.T, m *ConcurrentMap) {
-	itr := NewMapIterator(m)
+func testMapLookups_WLocking(t *testing.T, m *WLockingMap) {
+	itr := NewWLockingMapIterator(m)
 	for itr.HasNext() {
 		entry := itr.NextEntry()
 		k := entry.Key().(string)
@@ -767,7 +755,7 @@ func testMapLookups(t *testing.T, m *ConcurrentMap) {
 //	}
 //}
 
-func TestMapIterOrder(t *testing.T) {
+func TestMapIterOrder_WLocking(t *testing.T) {
 	for _, n := range [...]int{3, 7, 9, 15} {
 		// Make m be {0: true, 1: true, ..., n-1: true}.
 		m := make(map[int]bool)
@@ -845,134 +833,134 @@ func TestMapIterOrder(t *testing.T) {
 //}
 
 /*----------------test concurrent-------------------------------*/
-//func TestConcurrent(t *testing.T) {
-//	numCpu := runtime.NumCPU()
-//	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(numCpu))
-//	writeN := 2*numCpu + 1
-//	readN := 2*numCpu + 1
-//	n := 50
-//	var repeat int32 = 0
+func TestConcurrent_WLocking(t *testing.T) {
+	numCpu := runtime.NumCPU()
+	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(numCpu))
+	writeN := 2*numCpu + 1
+	readN := 2*numCpu + 1
+	n := 100000
+	var repeat int32 = 0
 
-//	wWg := new(sync.WaitGroup)
-//	wWg.Add(writeN)
-//	cDone := make(chan struct{})
-//	cm := NewConcurrentMap()
+	wWg := new(sync.WaitGroup)
+	wWg.Add(writeN)
+	cDone := make(chan struct{})
+	cm := NewWLockingMap()
 
-//	//start writeN goroutines to write to map with repeated keys, and count the total number of repeated key
-//	for i := 0; i < writeN; i++ {
-//		j := i
-//		go func() {
-//			for k := 0; k < n; k++ {
-//				//0-99999, 50000-149999, 100000-19999, 150000-249999,200000-29999, 250000-349999
-//				key := k + (j * n / 2)
-//				if previous, err := cm.Put(key, strconv.Itoa(key)+strings.Repeat(" ", j)); err != nil {
-//					t.Errorf("Get error %v when concurrent write map", err)
-//					return
-//				} else if previous != nil {
-//					//count the total number of repeated key
-//					atomic.AddInt32(&repeat, 1)
-//				}
-//			}
-//			wWg.Done()
-//		}()
-//	}
+	//start writeN goroutines to write to map with repeated keys, and count the total number of repeated key
+	for i := 0; i < writeN; i++ {
+		j := i
+		go func() {
+			for k := 0; k < n; k++ {
+				//0-99999, 50000-149999, 100000-19999, 150000-249999,200000-29999, 250000-349999
+				key := k + (j * n / 2)
+				if previous, err := cm.Put(key, strconv.Itoa(key)+strings.Repeat(" ", j)); err != nil {
+					t.Errorf("Get error %v when concurrent write map", err)
+					return
+				} else if previous != nil {
+					//count the total number of repeated key
+					atomic.AddInt32(&repeat, 1)
+				}
+			}
+			wWg.Done()
+		}()
+	}
 
-//	go func() {
-//		wWg.Wait()
-//		close(cDone)
-//	}()
+	go func() {
+		wWg.Wait()
+		close(cDone)
+	}()
 
-//	//start readN goroutines to iterate the map
-//	rWg := new(sync.WaitGroup)
-//	rWg.Add(readN)
-//	for i := 0; i < readN; i++ {
-//		go func() {
-//			for {
-//				itr := NewMapIterator(cm)
-//				for itr.HasNext() {
-//					entry := itr.NextEntry()
-//					k := entry.Key().(int)
-//					v := entry.Value().(string)
-//					if strconv.Itoa(k) != strings.Trim(v, " ") {
-//						t.Errorf("Get %v by %v, want %v == strings.Trim(\"%v\")", v, k, v, k)
-//						return
-//					}
-//				}
+	//start readN goroutines to iterate the map
+	rWg := new(sync.WaitGroup)
+	rWg.Add(readN)
+	for i := 0; i < readN; i++ {
+		go func() {
+			for {
+				itr := NewWLockingMapIterator(cm)
+				for itr.HasNext() {
+					entry := itr.NextEntry()
+					k := entry.Key().(int)
+					v := entry.Value().(string)
+					if strconv.Itoa(k) != strings.Trim(v, " ") {
+						t.Errorf("Get %v by %v, want %v == strings.Trim(\"%v\")", v, k, v, k)
+						return
+					}
+				}
 
-//				//exit read goroutines if all write goroutines are done
-//				exit := false
-//				select {
-//				case <-cDone:
-//					exit = true
-//					break
-//				case <-time.After(1 * time.Microsecond):
-//				}
+				//exit read goroutines if all write goroutines are done
+				exit := false
+				select {
+				case <-cDone:
+					exit = true
+					break
+				case <-time.After(1 * time.Microsecond):
+				}
 
-//				if exit {
-//					break
-//				}
-//			}
-//			rWg.Done()
-//		}()
-//	}
+				if exit {
+					break
+				}
+			}
+			rWg.Done()
+		}()
+	}
 
-//	//Start a goroutines to count the size of concurrentMap and total number of repeated keys
-//	//after all write goroutines are done
-//	cLast := make(chan struct{})
-//	go func() {
-//		wWg.Wait()
-//		if repeat != int32((writeN-1)*(n/2)) {
-//			t.Errorf("Repeat %v, want %v", repeat, (writeN-1)*(n/2))
-//		}
+	//Start a goroutines to count the size of concurrentMap and total number of repeated keys
+	//after all write goroutines are done
+	cLast := make(chan struct{})
+	go func() {
+		wWg.Wait()
+		if repeat != int32((writeN-1)*(n/2)) {
+			t.Errorf("Repeat %v, want %v", repeat, (writeN-1)*(n/2))
+		}
 
-//		size := cm.Size()
-//		if size != int32(n/2+writeN*(n/2)) {
-//			t.Errorf("Size is %v, want %v", size, n/2+writeN*(n/2))
-//		}
+		size := cm.Size()
+		if size != int32(n/2+writeN*(n/2)) {
+			t.Errorf("Size is %v, want %v", size, n/2+writeN*(n/2))
+		}
 
-//		cm.Clear()
-//		size = cm.Size()
-//		if size != 0 {
-//			t.Errorf("Size is %v after calling Clear(), want %v", size, 0)
-//		}
-//		close(cLast)
-//	}()
+		cm.Clear()
+		size = cm.Size()
+		if size != 0 {
+			t.Errorf("Size is %v after calling Clear(), want %v", size, 0)
+		}
+		close(cLast)
+	}()
 
-//	rWg.Wait()
-//	<-cLast
+	rWg.Wait()
+	<-cLast
+}
+
+//below code are used in readme.txt
+//func Test1(t *testing.T) {
+//	m := NewConcurrentMap()
+
+//	previou, err := m.Put(1, 10) //return nil, nil
+//	t.Log("1.", previou, err)
+//	previou, err = m.PutIfAbsent(1, 20) //return 10, nil
+//	t.Log("2.", previou, err)
+
+//	val, err := m.Get(1) //return 10, nil
+//	t.Log("3.", val, err)
+//	s := m.Size() //return 1
+//	t.Log("4.", s)
+
+//	m.PutAll(map[interface{}]interface{}{
+//		1: 100,
+//		2: 200,
+//	})
+//	ok, err := m.RemoveEntry(1, 100) //return true, nil
+//	t.Log("5.", ok, err)
+
+//	previou, err = m.Replace(2, 20) //return 200, nil
+//	t.Log("6.", previou, err)
+//	ok, err = m.CompareAndReplace(2, 200, 20) //return false, nil
+//	t.Log("7.", ok, err)
+
+//	previou, err = m.Remove(2) //return 20, nil
+//	t.Log("8.", previou, err)
+
+//	m.Clear()
+//	s = m.Size() //return 0
+//	t.Log("9.", s)
+
 //}
-
-////below code are used in readme.txt
-////func Test1(t *testing.T) {
-////	m := NewConcurrentMap()
-
-////	previou, err := m.Put(1, 10) //return nil, nil
-////	t.Log("1.", previou, err)
-////	previou, err = m.PutIfAbsent(1, 20) //return 10, nil
-////	t.Log("2.", previou, err)
-
-////	val, err := m.Get(1) //return 10, nil
-////	t.Log("3.", val, err)
-////	s := m.Size() //return 1
-////	t.Log("4.", s)
-
-////	m.PutAll(map[interface{}]interface{}{
-////		1: 100,
-////		2: 200,
-////	})
-////	ok, err := m.RemoveEntry(1, 100) //return true, nil
-////	t.Log("5.", ok, err)
-
-////	previou, err = m.Replace(2, 20) //return 200, nil
-////	t.Log("6.", previou, err)
-////	ok, err = m.CompareAndReplace(2, 200, 20) //return false, nil
-////	t.Log("7.", ok, err)
-
-////	previou, err = m.Remove(2) //return 20, nil
-////	t.Log("8.", previou, err)
-
-////	m.Clear()
-////	s = m.Size() //return 0
-////	t.Log("9.", s)
-
-////}
