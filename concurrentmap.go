@@ -59,13 +59,6 @@ var (
 //segments is read-only, don't need synchronized
 type ConcurrentMap struct {
 	/**
-	 * The number of elements in HashMap,
-	 * must use atomic Load/Store to read/write this field.
-	 * It is a hot spot of date race, but adding this field will simplify IsEmpty and Size method
-	 */
-	count int32
-
-	/**
 	 * Mask value for indexing into segments. The upper bits of a
 	 * key's hash code are used to choose the segment.
 	 */
@@ -98,14 +91,91 @@ func (this *ConcurrentMap) segmentFor(hash uint32) *Segment {
  * Returns true if this map contains no key-value mappings.
  */
 func (this *ConcurrentMap) IsEmpty() bool {
-	return atomic.LoadInt32(&this.count) > 0
+	segments := this.segments
+	/*
+	 * if any segment count isn't zero, Map will be no empty.
+	 * 检查是否每个segment的count是否为0，并记录modCount和总和
+	 */
+	mc := make([]int32, len(segments))
+	var mcsum int32 = 0
+	for i := 0; i < len(segments); i++ {
+		if atomic.LoadInt32(&segments[i].count) != 0 {
+			return false
+		} else {
+			mc[i] = atomic.LoadInt32(&segments[i].modCount)
+			mcsum += mc[i]
+		}
+	}
+
+	/*
+	 * if mcsum isn't zero, then modification is made,
+	 * we will check per-segments count and if modCount be modified
+	 * to avoid ABA problems in which an element in one segment was added and
+	 * in another removed during traversal
+	 */
+	if mcsum != 0 {
+		for i := 0; i < len(segments); i++ {
+			if atomic.LoadInt32(&segments[i].count) != 0 || mc[i] != atomic.LoadInt32(&segments[i].modCount) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 /**
  * Returns the number of key-value mappings in this map.
  */
 func (this *ConcurrentMap) Size() int32 {
-	return atomic.LoadInt32(&this.count)
+	segments := this.segments
+	var sum int32 = 0
+	var check int32 = 0
+	mc := make([]int32, len(segments))
+
+	// Try a few times to get accurate count. On failure due to
+	// continuous async changes in table, resort to locking.
+	for k := 0; k < RETRIES_BEFORE_LOCK; k++ {
+		check = 0
+		sum = 0
+		var mcsum int32 = 0
+		for i := 0; i < len(segments); i++ {
+			sum += atomic.LoadInt32(&segments[i].count)
+			mc[i] = atomic.LoadInt32(&segments[i].modCount)
+			mcsum += mc[i]
+		}
+		if mcsum != 0 {
+			for i := 0; i < len(segments); i++ {
+				check += atomic.LoadInt32(&segments[i].count)
+				if mc[i] != atomic.LoadInt32(&segments[i].modCount) {
+					//async change happens, force retry
+					check = -1 //
+					break
+				}
+			}
+		}
+
+		//twoice counts ar same, it means no async change,
+		//then will return sum
+		if check == sum {
+			break
+		}
+	}
+
+	//async change happens in each loop
+	//lock all segments to get accurate count
+	if check != sum {
+		sum = 0
+		for i := 0; i < len(segments); i++ {
+			segments[i].lock.Lock()
+		}
+		for i := 0; i < len(segments); i++ {
+			sum += segments[i].count
+		}
+		for i := 0; i < len(segments); i++ {
+			segments[i].lock.Unlock()
+		}
+	}
+	return sum
 }
 
 /**
@@ -327,7 +397,7 @@ func newConcurrentMap3(initialCapacity int,
 	}
 
 	for i := 0; i < len(m.segments); i++ {
-		m.segments[i] = m.newSegment(cap, loadFactor)
+		m.segments[i] = newSegment(cap, loadFactor)
 	}
 	return
 }
@@ -430,16 +500,21 @@ func (this *Entry) storeValue(v *interface{}) {
 
 type Segment struct {
 	/**
-	 * The pointer that points to HashMap count
-	 */
-	sumCount *int32
-
-	/**
 	 * The number of elements in this segment's region.
 	 * Must use atomic package's LoadInt32 and StoreInt32 functions to read/write this field
 	 * otherwise read operation may cannot read latest value
 	 */
 	count int32
+
+	/**
+	 * Number of updates that alter the size of the table. This is
+	 * used during bulk-read methods to make sure they see a
+	 * consistent snapshot: If modCounts change during a traversal
+	 * of segments computing size or checking containsValue, then
+	 * we might have an inconsistent view of state so (usually)
+	 * must retry.
+	 */
+	modCount int32
 
 	/**
 	 * The table is rehashed when its size exceeds this threshold.
@@ -495,12 +570,12 @@ func (this *Segment) rehash() {
 
 		if e != nil {
 			next := e.next
-			//calculate index in new table
+			//计算节点扩容后新的数组下标
 			idx := e.hash & sizeMask
 
+			//  Single node on list
+			//如果没有后续的碰撞节点，直接复制到新数组即可
 			if next == nil {
-				//Single node on list
-				//如果没有后续的碰撞节点，直接复制到新数组即可
 				newTable[idx] = unsafe.Pointer(e)
 			} else {
 				/* Reuse trailing consecutive sequence at same slot
@@ -518,10 +593,6 @@ func (this *Segment) rehash() {
 					k := last.hash & uint32(sizeMask)
 					//发现新下标不同的节点就保存到lastIdx和lastRun中
 					//所以lastIdx和lastRun总是对应现有碰撞链表中最后一段新下标相同节点的首节点和其对应的新下标
-					//lastIdx will store this index that related node's new index is different with previous node
-					//but all after nodes's new index will be same with this node.
-					//the linked list from this node can be directly linked to new table,
-					//because their's next field need not be changed.
 					if k != lastIdx {
 						lastIdx = k
 						lastRun = last
@@ -655,8 +726,13 @@ func (this *Segment) replace(key interface{}, hash uint32, newValue interface{})
 }
 
 /**
- * In Golang中，StorePointer function's asm code includes a xchgl instruction，
- * so it can prevent reorder.
+ * put方法牵涉到count, modCount, pTable三个共享变量的修改
+ * 在Java中count和pTable是volatile字段，而modCount不是
+ * 由于IsEmpty和Size等操作会读取count, modCount和pTable并且是无锁的，这里有必要对进行并发安全性的分析
+ * 在Java中，volatile的读具有Acquire语义，volatile的写具有release语义，而put的最后会写入count，
+ * 其他读操作总是会先读取count，由此保证了put中其他的写入操作不会被reorder到写入count之后，而读操作中其他的读取不会被reorder到读count之前
+ * 由此保证了多线程情况下读和写线程中看到的操作次序不会发送混乱，
+ * 在Golang中，StorePointer内部使用了xchgl指令，具有内存屏障，但是Load操作似乎并未具有明确的acquire语义
  */
 func (this *Segment) put(key interface{}, hash uint32, value interface{}, onlyIfAbsent bool) (oldValue interface{}) {
 	this.lock.Lock()
@@ -683,10 +759,9 @@ func (this *Segment) put(key interface{}, hash uint32, value interface{}, onlyIf
 		}
 	} else {
 		oldValue = nil
-		//this.modCount++
+		this.modCount++
 		tab[index] = unsafe.Pointer(&Entry{key, hash, unsafe.Pointer(&value), first})
-		atomic.StoreInt32(&this.count, c) //StoreInt32 can prevent reorder
-		atomic.AddInt32(this.sumCount, 1)
+		atomic.StoreInt32(&this.count, c) // atomic write 这里可以保证对modCount和tab的修改不会被reorder到this.count之后
 	}
 	return
 }
@@ -715,21 +790,20 @@ func (this *Segment) remove(key interface{}, hash uint32, value interface{}) (ol
 			// All entries following removed node can stay
 			// in list, but all preceding ones need to be
 			// cloned.
-			//this.modCount++
+			this.modCount++
 			newFirst := e.next
 			for p := first; p != e; p = p.next {
 				newFirst = &Entry{p.key, p.hash, p.value, newFirst}
 			}
 			tab[index] = unsafe.Pointer(newFirst)
 			atomic.StoreInt32(&this.count, c) //this.count = c
-			atomic.AddInt32(this.sumCount, -1)
 		}
 	}
 	return
 }
 
 func (this *Segment) clear() {
-	if count := atomic.LoadInt32(&this.count); count != 0 {
+	if atomic.LoadInt32(&this.count) != 0 {
 		this.lock.Lock()
 		defer this.lock.Unlock()
 
@@ -737,19 +811,17 @@ func (this *Segment) clear() {
 		for i := 0; i < len(tab); i++ {
 			tab[i] = nil
 		}
-		//this.modCount++
+		this.modCount++
 		atomic.StoreInt32(&this.count, 0) //this.count = 0 // write-volatile
-		atomic.AddInt32(this.sumCount, -1*count)
 	}
 }
 
-func (this *ConcurrentMap) newSegment(initialCapacity int, lf float32) (s *Segment) {
+func newSegment(initialCapacity int, lf float32) (s *Segment) {
 	s = new(Segment)
 	s.loadFactor = lf
 	table := make([]unsafe.Pointer, initialCapacity)
 	s.setTable(table)
 	s.lock = new(sync.Mutex)
-	s.sumCount = &this.count
 	return
 }
 
