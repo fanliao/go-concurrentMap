@@ -14,28 +14,6 @@ const (
 	bigEndian = false
 )
 
-/**
- * Applies a supplemental hash function to a given hashCode, which
- * defends against poor quality hash functions.  This is critical
- * because ConcurrentHashMap uses power-of-two length hash tables,
- * that otherwise encounter collisions for hashCodes that do not
- * differ in lower or upper bits.
- */
-func hash2(h uint32) uint32 {
-	//// Spread bits to regularize both segment and index locations,
-	//// using variant of single-word Wang/Jenkins hash.
-	//h += (h << 15) ^ 0xffffcd7d
-	//h ^= (h >> 10)
-	//h += (h << 3)
-	//h ^= (h >> 6)
-	//h += (h << 2) + (h << 14)
-	//return uint32(h ^ (h >> 16))
-
-	//Now all hashcode is created by FNVa, it isn't a poor quality hash function
-	//so I removes the hash operation for second time
-	return h
-}
-
 //hash a interface using FNVa
 func hashI(val interface{}) (hashCode uint32) {
 	h := fnv.New32a()

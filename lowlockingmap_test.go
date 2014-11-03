@@ -4,7 +4,7 @@ import (
 	//"errors"
 	"fmt"
 	//c "github.com/smartystreets/goconvey/convey"
-	//"math"
+	"math"
 	"math/rand"
 	"reflect"
 	"runtime"
@@ -15,7 +15,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-	"unsafe"
 )
 
 //func TestNil_LowLocking(t *testing.T) {
@@ -219,6 +218,19 @@ func test_LowLockingMap(t *testing.T, datas map[interface{}]interface{}) {
 //	}
 //}
 
+type user struct {
+	id   string
+	name string
+}
+
+func (u *user) Id() string {
+	return u.id
+}
+
+type Ider interface {
+	Id() string
+}
+
 //func TestInterface_LowLocking(t *testing.T) {
 //	var a, b, c, d Ider = &user{"1", "n1"}, &user{"2", "n2"}, &user{"3", "n3"}, &user{"4", "n4"}
 //	testConcurrentMap(t, map[interface{}]interface{}{
@@ -236,6 +248,11 @@ func test_LowLockingMap(t *testing.T, datas map[interface{}]interface{}) {
 //		t.Errorf("Get %v, return %v, %v, want %v", &e, v, err, 10)
 //	}
 //}
+
+type small struct {
+	id   byte
+	name byte
+}
 
 //func TestSmallStruct_LowLocking(t *testing.T) {
 //	a, b, c, d := small{1, 1}, small{2, 2}, small{3, 3}, small{4, 4}
@@ -374,123 +391,128 @@ func test_LowLockingMap(t *testing.T, datas map[interface{}]interface{}) {
 //	}
 //}
 
-//func TestGrowWithNaN_LowLocking(t *testing.T) {
-//	m := NewLowLockingMap(0) //make(map[float64]int, 0)
-//	nan := math.NaN()
-//	m.Put(nan, 1)
-//	m.Put(nan, 2)
-//	m.Put(nan, 4)
-//	cnt := 0
-//	s := 0
-//	growflag := true
+func TestGrowWithNaN_LowLocking(t *testing.T) {
+	m := NewLowLockingMap(0) //make(map[float64]int, 0)
+	nan := math.NaN()
+	m.Put(nan, 1)
+	m.Put(nan, 2)
+	m.Put(nan, 4)
+	cnt := 0
+	s := 0
+	growflag := true
 
-//	itr := NewLowLockingMapIterator(m)
-//	for itr.HasNext() {
-//		entry := itr.NextEntry()
-//		k, v := entry.Key().(float64), entry.Value().(int)
-//		if growflag {
-//			// force a hashtable resize
-//			for i := 0; i < 100; i++ {
-//				m.Put(float64(i), i)
-//			}
-//			growflag = false
-//		}
-//		if k != k {
-//			cnt++
-//			s |= v
-//		}
-//	}
-//	if cnt != 3 {
-//		t.Error("NaN keys lost during grow")
-//	}
-//	if s != 7 {
-//		t.Error("NaN values lost during grow")
-//	}
-//}
+	itr := NewLowLockingMapIterator(m)
+	for itr.HasNext() {
+		entry := itr.NextEntry()
+		k, v := entry.Key().(float64), entry.Value().(int)
+		if growflag {
+			// force a hashtable resize
+			for i := 0; i < 100; i++ {
+				m.Put(float64(i), i)
+			}
+			growflag = false
+		}
+		if k != k {
+			cnt++
+			s |= v
+		}
+	}
+	if cnt != 3 {
+		t.Error("NaN keys lost during grow")
+	}
+	if s != 7 {
+		t.Error("NaN values lost during grow")
+	}
+}
 
-//func TestGrowWithNegativeZero_LowLocking(t *testing.T) {
-//	negzero := math.Copysign(0.0, -1.0)
-//	m := make(map[FloatInt]int, 4)
-//	m[FloatInt{0.0, 0}] = 1
-//	m[FloatInt{0.0, 1}] = 2
-//	m[FloatInt{0.0, 2}] = 4
-//	m[FloatInt{0.0, 3}] = 8
-//	growflag := true
-//	s := 0
-//	cnt := 0
-//	negcnt := 0
-//	// The first iteration should return the +0 key.
-//	// The subsequent iterations should return the -0 key.
-//	// I'm not really sure this is required by the spec,
-//	// but it makes sense.
-//	// TODO: are we allowed to get the first entry returned again???
-//	for k, v := range m {
-//		if v == 0 {
-//			continue
-//		} // ignore entries added to grow table
-//		cnt++
-//		if math.Copysign(1.0, k.x) < 0 {
-//			if v&16 == 0 {
-//				t.Error("key/value not updated together 1")
-//			}
-//			negcnt++
-//			s |= v & 15
-//		} else {
-//			if v&16 == 16 {
-//				t.Error("key/value not updated together 2", k, v)
-//			}
-//			s |= v
-//		}
-//		if growflag {
-//			// force a hashtable resize
-//			for i := 0; i < 100; i++ {
-//				m[FloatInt{3.0, i}] = 0
-//			}
-//			// then change all the entries
-//			// to negative zero
-//			m[FloatInt{negzero, 0}] = 1 | 16
-//			m[FloatInt{negzero, 1}] = 2 | 16
-//			m[FloatInt{negzero, 2}] = 4 | 16
-//			m[FloatInt{negzero, 3}] = 8 | 16
-//			growflag = false
-//		}
-//	}
-//	if s != 15 {
-//		t.Error("entry missing", s)
-//	}
-//	if cnt != 4 {
-//		t.Error("wrong number of entries returned by iterator", cnt)
-//	}
-//	if negcnt != 3 {
-//		t.Error("update to negzero missed by iteration", negcnt)
-//	}
-//}
+type FloatInt struct {
+	x float64
+	y int
+}
 
-//func TestIterGrowAndDelete_LowLocking(t *testing.T) {
-//	m := make(map[int]int, 4)
-//	for i := 0; i < 100; i++ {
-//		m[i] = i
-//	}
-//	growflag := true
-//	for k := range m {
-//		//t.Log("k ad growflag", k, growflag)
-//		if growflag {
-//			// grow the table
-//			for i := 100; i < 1000; i++ {
-//				m[i] = i
-//			}
-//			// delete all odd keys
-//			for i := 1; i < 1000; i += 2 {
-//				delete(m, i)
-//			}
-//			growflag = false
-//		} else {
-//			if k&1 == 1 {
-//				t.Error("odd value returned")
-//			}
-//		}
-//	}
-//}
+func TestGrowWithNegativeZero_LowLocking(t *testing.T) {
+	negzero := math.Copysign(0.0, -1.0)
+	m := make(map[FloatInt]int, 4)
+	m[FloatInt{0.0, 0}] = 1
+	m[FloatInt{0.0, 1}] = 2
+	m[FloatInt{0.0, 2}] = 4
+	m[FloatInt{0.0, 3}] = 8
+	growflag := true
+	s := 0
+	cnt := 0
+	negcnt := 0
+	// The first iteration should return the +0 key.
+	// The subsequent iterations should return the -0 key.
+	// I'm not really sure this is required by the spec,
+	// but it makes sense.
+	// TODO: are we allowed to get the first entry returned again???
+	for k, v := range m {
+		if v == 0 {
+			continue
+		} // ignore entries added to grow table
+		cnt++
+		if math.Copysign(1.0, k.x) < 0 {
+			if v&16 == 0 {
+				t.Error("key/value not updated together 1")
+			}
+			negcnt++
+			s |= v & 15
+		} else {
+			if v&16 == 16 {
+				t.Error("key/value not updated together 2", k, v)
+			}
+			s |= v
+		}
+		if growflag {
+			// force a hashtable resize
+			for i := 0; i < 100; i++ {
+				m[FloatInt{3.0, i}] = 0
+			}
+			// then change all the entries
+			// to negative zero
+			m[FloatInt{negzero, 0}] = 1 | 16
+			m[FloatInt{negzero, 1}] = 2 | 16
+			m[FloatInt{negzero, 2}] = 4 | 16
+			m[FloatInt{negzero, 3}] = 8 | 16
+			growflag = false
+		}
+	}
+	if s != 15 {
+		t.Error("entry missing", s)
+	}
+	if cnt != 4 {
+		t.Error("wrong number of entries returned by iterator", cnt)
+	}
+	if negcnt != 3 {
+		t.Error("update to negzero missed by iteration", negcnt)
+	}
+}
+
+func TestIterGrowAndDelete_LowLocking(t *testing.T) {
+	m := make(map[int]int, 4)
+	for i := 0; i < 100; i++ {
+		m[i] = i
+	}
+	growflag := true
+	for k := range m {
+		//t.Log("k ad growflag", k, growflag)
+		if growflag {
+			// grow the table
+			for i := 100; i < 1000; i++ {
+				m[i] = i
+			}
+			// delete all odd keys
+			for i := 1; i < 1000; i += 2 {
+				delete(m, i)
+			}
+			growflag = false
+		} else {
+			if k&1 == 1 {
+				t.Error("odd value returned")
+			}
+		}
+	}
+}
 
 func TestIterGrowAndDelete1_LowLocking(t *testing.T) {
 	m := NewLowLockingMap(4) //	make(map[int]int, 4)
@@ -518,10 +540,7 @@ func TestIterGrowAndDelete1_LowLocking(t *testing.T) {
 				itr := NewLowLockingMapIterator(m)
 				for itr.HasNext() {
 					entry := itr.NextEntry()
-					if k, ok := entry.Key().(int); k&1 == 1 || !ok {
-						fmt.Println("error!!!!!!", entry, "DELETED=", DELETED, unsafe.Pointer(&DELETED))
-						t.Error(entry)
-						_ = entry.Key().(int)
+					if entry.Key().(int)&1 == 1 {
 						t.Error("odd value returned by itr")
 					}
 				}
@@ -642,6 +661,9 @@ func TestBigItems_LowLocking(t *testing.T) {
 	}
 }
 
+type empty struct {
+}
+
 func TestEmptyKeyAndValue_LowLocking(t *testing.T) {
 	//a := make(map[int]empty, 4)
 	//b := make(map[empty]int, 4)
@@ -689,7 +711,7 @@ func TestSingleBucketMapStringKeys_NoDupLen_LowLocking(t *testing.T) {
 	}))
 }
 
-func testMapLookups_LowLocking(t *testing.T, m *WLockingMap) {
+func testMapLookups_LowLocking(t *testing.T, m *ConcurrentMap) {
 	itr := NewMapIterator(m)
 	for itr.HasNext() {
 		entry := itr.NextEntry()

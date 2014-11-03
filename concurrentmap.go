@@ -2,7 +2,6 @@ package concurrent
 
 import (
 	"errors"
-	//"fmt"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -14,7 +13,7 @@ const (
 	 * The default initial capacity for this table,
 	 * used when not otherwise specified in a constructor.
 	 */
-	DEFAULT_INITIAL_CAPACITY int = 64
+	DEFAULT_INITIAL_CAPACITY int = 16
 
 	/**
 	 * The default load factor for this table, used when not
@@ -433,7 +432,7 @@ type Segment struct {
 	/**
 	 * The pointer that points to HashMap count
 	 */
-	pSumCount *int32
+	sumCount *int32
 
 	/**
 	 * The number of elements in this segment's region.
@@ -466,84 +465,80 @@ type Segment struct {
 }
 
 func (this *Segment) rehash() {
-	this.lock.Lock()
-	this.lock.Unlock()
-	if atomic.LoadInt32(&this.count) > atomic.LoadInt32(&this.threshold) {
-		oldTable := this.table() //*(*[]*Entry)(this.table)
-		oldCapacity := len(oldTable)
-		if oldCapacity >= MAXIMUM_CAPACITY {
-			return
-		}
+	oldTable := this.table() //*(*[]*Entry)(this.table)
+	oldCapacity := len(oldTable)
+	if oldCapacity >= MAXIMUM_CAPACITY {
+		return
+	}
 
-		/*
-		 * Reclassify nodes in each list to new Map.  Because we are
-		 * using power-of-two expansion, the elements from each bin
-		 * must either stay at same index, or move with a power of two
-		 * offset. We eliminate unnecessary node creation by catching
-		 * cases where old nodes can be reused because their next
-		 * fields won't change. Statistically, at the default
-		 * threshold, only about one-sixth of them need cloning when
-		 * a table doubles. The nodes they replace will be garbage
-		 * collectable as soon as they are no longer referenced by any
-		 * reader thread that may be in the midst of traversing table
-		 * right now.
-		 */
+	/*
+	 * Reclassify nodes in each list to new Map.  Because we are
+	 * using power-of-two expansion, the elements from each bin
+	 * must either stay at same index, or move with a power of two
+	 * offset. We eliminate unnecessary node creation by catching
+	 * cases where old nodes can be reused because their next
+	 * fields won't change. Statistically, at the default
+	 * threshold, only about one-sixth of them need cloning when
+	 * a table doubles. The nodes they replace will be garbage
+	 * collectable as soon as they are no longer referenced by any
+	 * reader thread that may be in the midst of traversing table
+	 * right now.
+	 */
 
-		newTable := make([]unsafe.Pointer, oldCapacity<<1)
-		sizeMask := uint32(len(newTable) - 1)
-		for i := 0; i < oldCapacity; i++ {
-			// We need to guarantee that any existing reads of old Map can
-			//  proceed. So we cannot yet nil out each bin.
-			e := (*Entry)(oldTable[i])
+	newTable := make([]unsafe.Pointer, oldCapacity<<1)
+	atomic.StoreInt32(&this.threshold, int32(float32(len(newTable))*this.loadFactor))
+	sizeMask := uint32(len(newTable) - 1)
+	for i := 0; i < oldCapacity; i++ {
+		// We need to guarantee that any existing reads of old Map can
+		//  proceed. So we cannot yet nil out each bin.
+		e := (*Entry)(oldTable[i])
 
-			if e != nil {
-				next := e.next
-				//calculate index in new table
-				idx := e.hash & sizeMask
+		if e != nil {
+			next := e.next
+			//calculate index in new table
+			idx := e.hash & sizeMask
 
-				if next == nil {
-					//Single node on list
-					//如果没有后续的碰撞节点，直接复制到新数组即可
-					newTable[idx] = unsafe.Pointer(e)
-				} else {
-					/* Reuse trailing consecutive sequence at same slot
-					 * 数组扩容后原来数组下标相同（碰撞）的节点可能会计算出不同的新下标
-					 * 如果把碰撞链表中所有节点的新下标列出，并将相邻的新下标相同的节点视为一段
-					 * 那么下面的代码为了提高效率，会循环碰撞链表，找到链表中最后一段首节点（之后所有节点的新下标相同）
-					 * 然后将这个首节点复制到新数组，后续节点因为计算出的新下标相同，所以在扩容后的数组中仍然在同一碰撞链表中
-					 * 所以新的首节点的碰撞链表是正确的
-					 * 新的首节点之外的其他现存碰撞链表上的节点，则重新复制到新节点（这个重要，可以保持旧节点的不变性）后放入新数组
-					 * 这个过程的关键在于维持所有旧节点的next属性不会发生变化，这样才能让无锁的读操作保持线程安全
-					 */
-					lastRun := e
-					lastIdx := idx
-					for last := next; last != nil; last = last.next {
-						k := last.hash & uint32(sizeMask)
-						//发现新下标不同的节点就保存到lastIdx和lastRun中
-						//所以lastIdx和lastRun总是对应现有碰撞链表中最后一段新下标相同节点的首节点和其对应的新下标
-						//lastIdx will store this index that related node's new index is different with previous node
-						//but all after nodes's new index will be same with this node.
-						//the linked list from this node can be directly linked to new table,
-						//because their's next field need not be changed.
-						if k != lastIdx {
-							lastIdx = k
-							lastRun = last
-						}
+			if next == nil {
+				//Single node on list
+				//如果没有后续的碰撞节点，直接复制到新数组即可
+				newTable[idx] = unsafe.Pointer(e)
+			} else {
+				/* Reuse trailing consecutive sequence at same slot
+				 * 数组扩容后原来数组下标相同（碰撞）的节点可能会计算出不同的新下标
+				 * 如果把碰撞链表中所有节点的新下标列出，并将相邻的新下标相同的节点视为一段
+				 * 那么下面的代码为了提高效率，会循环碰撞链表，找到链表中最后一段首节点（之后所有节点的新下标相同）
+				 * 然后将这个首节点复制到新数组，后续节点因为计算出的新下标相同，所以在扩容后的数组中仍然在同一碰撞链表中
+				 * 所以新的首节点的碰撞链表是正确的
+				 * 新的首节点之外的其他现存碰撞链表上的节点，则重新复制到新节点（这个重要，可以保持旧节点的不变性）后放入新数组
+				 * 这个过程的关键在于维持所有旧节点的next属性不会发生变化，这样才能让无锁的读操作保持线程安全
+				 */
+				lastRun := e
+				lastIdx := idx
+				for last := next; last != nil; last = last.next {
+					k := last.hash & uint32(sizeMask)
+					//发现新下标不同的节点就保存到lastIdx和lastRun中
+					//所以lastIdx和lastRun总是对应现有碰撞链表中最后一段新下标相同节点的首节点和其对应的新下标
+					//lastIdx will store this index that related node's new index is different with previous node
+					//but all after nodes's new index will be same with this node.
+					//the linked list from this node can be directly linked to new table,
+					//because their's next field need not be changed.
+					if k != lastIdx {
+						lastIdx = k
+						lastRun = last
 					}
-					newTable[lastIdx] = unsafe.Pointer(lastRun)
+				}
+				newTable[lastIdx] = unsafe.Pointer(lastRun)
 
-					// Clone all remaining nodes
-					for p := e; p != lastRun; p = p.next {
-						k := p.hash & sizeMask
-						n := newTable[k]
-						newTable[k] = unsafe.Pointer(&Entry{p.key, p.hash, p.value, (*Entry)(n)})
-					}
+				// Clone all remaining nodes
+				for p := e; p != lastRun; p = p.next {
+					k := p.hash & sizeMask
+					n := newTable[k]
+					newTable[k] = unsafe.Pointer(&Entry{p.key, p.hash, p.value, (*Entry)(n)})
 				}
 			}
 		}
-		atomic.StorePointer(&this.pTable, unsafe.Pointer(&newTable))
-		atomic.StoreInt32(&this.threshold, int32(float32(len(newTable))*this.loadFactor))
 	}
+	atomic.StorePointer(&this.pTable, unsafe.Pointer(&newTable))
 }
 
 /**
@@ -574,12 +569,9 @@ func (this *Segment) table() []unsafe.Pointer {
 /**
  * Returns properly casted first entry of bin for given hash.
  */
-func (this *Segment) getFirst(hash uint32) (first unsafe.Pointer, tab unsafe.Pointer, idx uint32) {
-	tab = atomic.LoadPointer(&this.pTable)
-	table := *(*[]unsafe.Pointer)(tab)
-	idx = hash & uint32(len(table)-1)
-	first = (atomic.LoadPointer(&table[idx]))
-	return
+func (this *Segment) getFirst(hash uint32) *Entry {
+	tab := this.loadTable()
+	return (*Entry)(atomic.LoadPointer(&tab[hash&uint32(len(tab)-1)]))
 }
 
 /**
@@ -602,8 +594,7 @@ func (this *Segment) readValueUnderLock(e *Entry) interface{} {
 
 func (this *Segment) get(key interface{}, hash uint32) interface{} {
 	if atomic.LoadInt32(&this.count) != 0 { // atomic-read
-		first, _, _ := this.getFirst(hash)
-		e := (*Entry)(first)
+		e := this.getFirst(hash)
 		for e != nil {
 			if e.hash == hash && key == e.key {
 				v := e.Value()
@@ -620,8 +611,7 @@ func (this *Segment) get(key interface{}, hash uint32) interface{} {
 
 func (this *Segment) containsKey(key interface{}, hash uint32) bool {
 	if atomic.LoadInt32(&this.count) != 0 { // read-volatile
-		first, _, _ := this.getFirst(hash)
-		e := (*Entry)(first)
+		e := this.getFirst(hash)
 		for e != nil {
 			if e.hash == hash && key == e.key {
 				return true
@@ -633,89 +623,35 @@ func (this *Segment) containsKey(key interface{}, hash uint32) bool {
 }
 
 func (this *Segment) replaceWithOld(key interface{}, hash uint32, oldValue interface{}, newValue interface{}) bool {
-	//this.lock.Lock()
-	//defer this.lock.Unlock()
+	this.lock.Lock()
+	defer this.lock.Unlock()
 
-	first, ptable, idx := this.getFirst(hash)
-	e, tab := (*Entry)(first), *(*[]unsafe.Pointer)(ptable)
+	e := this.getFirst(hash)
+	for e != nil && (e.hash != hash || key != e.key) {
+		e = e.next
+	}
 
 	replaced := false
-	for {
-		//next节点不可变，因此无须原子读
-		for e != nil && (e.hash != hash || key != e.key) {
-			e = e.next
-		}
-
-		if first != (atomic.LoadPointer(&tab[idx])) {
-			//first节点被改变，需要重新开始循环
-			first = (atomic.LoadPointer(&tab[idx]))
-			e = (*Entry)(first)
-			continue
-		}
-
-		if e != nil && oldValue == e.Value() {
-			replaced = true
-			e.storeValue(&newValue)
-		}
-		//替换value后再次检查first是否节点被改变
-		if first != (atomic.LoadPointer(&tab[idx])) {
-			first = (atomic.LoadPointer(&tab[idx]))
-			e = (*Entry)(first)
-			replaced = false
-			continue
-		}
-
-		//检查table是否被改变，防止替换到已经被rehash的table节点
-		if ptable != atomic.LoadPointer(&this.pTable) {
-			first, ptable, idx = this.getFirst(hash)
-			e, tab = (*Entry)(first), *(*[]unsafe.Pointer)(ptable)
-
-			replaced = false
-			continue
-		}
-		return replaced
-
+	if e != nil && oldValue == e.fastValue() {
+		replaced = true
+		e.storeValue(&newValue)
 	}
+	return replaced
 }
 
 func (this *Segment) replace(key interface{}, hash uint32, newValue interface{}) (oldValue interface{}) {
-	first, ptable, idx := this.getFirst(hash)
-	e, tab := (*Entry)(first), *(*[]unsafe.Pointer)(ptable)
-
-	for {
-		//next节点不可变，因此无须原子读
-		for e != nil && (e.hash != hash || key != e.key) {
-			e = e.next
-		}
-
-		if first != (atomic.LoadPointer(&tab[idx])) {
-			//first节点被改变，需要重新开始循环
-			first = (atomic.LoadPointer(&tab[idx]))
-			e = (*Entry)(first)
-			continue
-		}
-
-		if e != nil {
-			oldValue = *((*interface{})(atomic.SwapPointer(&e.value, unsafe.Pointer(&newValue))))
-		}
-		//替换value后再次检查first是否节点被改变
-		if first != (atomic.LoadPointer(&tab[idx])) {
-			first = (atomic.LoadPointer(&tab[idx]))
-			e = (*Entry)(first)
-			oldValue = nil
-			continue
-		}
-
-		//检查table是否被改变，防止替换到已经被rehash的table节点
-		if ptable != atomic.LoadPointer(&this.pTable) {
-			first, ptable, idx = this.getFirst(hash)
-			e, tab = (*Entry)(first), *(*[]unsafe.Pointer)(ptable)
-
-			oldValue = nil
-			continue
-		}
-		return
+	this.lock.Lock()
+	defer this.lock.Unlock()
+	e := this.getFirst(hash)
+	for e != nil && (e.hash != hash || key != e.key) {
+		e = e.next
 	}
+
+	if e != nil {
+		oldValue = e.fastValue()
+		e.storeValue(&newValue)
+	}
+	return
 }
 
 /**
@@ -723,177 +659,73 @@ func (this *Segment) replace(key interface{}, hash uint32, newValue interface{})
  * so it can prevent reorder.
  */
 func (this *Segment) put(key interface{}, hash uint32, value interface{}, onlyIfAbsent bool) (oldValue interface{}) {
-	c := atomic.LoadInt32(&this.count)
-	if c > atomic.LoadInt32(&this.threshold) { // ensure capacity
+	this.lock.Lock()
+	defer this.lock.Unlock()
+
+	c := this.count
+	if c > this.threshold { // ensure capacity
 		this.rehash()
 	}
 	c++
-	first, ptable, idx := this.getFirst(hash)
-	e, tab := (*Entry)(first), *(*[]unsafe.Pointer)(ptable)
 
-	for {
-		//next节点不可变，因此无须原子读
-		for e != nil && (e.hash != hash || key != e.key) {
-			e = e.next
-		}
-
-		////fmt.Println("exit for2")
-		if first != (atomic.LoadPointer(&tab[idx])) {
-			//first节点被改变，需要重新开始循环
-			first = (atomic.LoadPointer(&tab[idx]))
-			e = (*Entry)(first)
-			////fmt.Println("continue1")
-			continue
-		}
-
-		added := false
-		if e != nil {
-			if !onlyIfAbsent {
-				oldValue = *((*interface{})(atomic.SwapPointer(&e.value, unsafe.Pointer(&value))))
-			} else {
-				oldValue = e.Value()
-			}
-			//替换value后再次检查first是否节点被改变
-			if first != (atomic.LoadPointer(&tab[idx])) {
-				first = (atomic.LoadPointer(&tab[idx]))
-				e = (*Entry)(first)
-				oldValue = nil
-				//fmt.Println("continue2。1")
-				continue
-			}
-		} else {
-			oldValue = nil
-			//this.modCount++
-			if atomic.CompareAndSwapPointer(&tab[idx], first, unsafe.Pointer(&Entry{key, hash, unsafe.Pointer(&value), (*Entry)(first)})) {
-				added = true
-			} else {
-				//CAS失败，first节点已经被替换
-				first = (atomic.LoadPointer(&tab[idx]))
-				e = (*Entry)(first)
-				oldValue = nil
-				////fmt.Println("continue2.2")
-				continue
-			}
-		}
-
-		//检查table是否被改变，防止替换到已经被rehash的table节点
-		if ptable != atomic.LoadPointer(&this.pTable) {
-			first, ptable, idx = this.getFirst(hash)
-			e, tab = (*Entry)(first), *(*[]unsafe.Pointer)(ptable)
-
-			oldValue = nil
-			////fmt.Println("continue3")
-			continue
-		}
-		if added {
-			atomic.AddInt32(&this.count, 1) //StoreInt32 can prevent reorder
-			atomic.AddInt32(this.pSumCount, 1)
-		}
-		return
+	tab := this.table()
+	index := hash & uint32(len(tab)-1)
+	first := (*Entry)(tab[index])
+	e := first
+	for e != nil && (e.hash != hash || key != e.key) {
+		e = e.next
 	}
+
+	if e != nil {
+		oldValue = e.fastValue()
+		if !onlyIfAbsent {
+			e.storeValue(&value)
+		}
+	} else {
+		oldValue = nil
+		//this.modCount++
+		tab[index] = unsafe.Pointer(&Entry{key, hash, unsafe.Pointer(&value), first})
+		atomic.StoreInt32(&this.count, c) //StoreInt32 can prevent reorder
+		atomic.AddInt32(this.sumCount, 1)
+	}
+	return
 }
 
 /**
  * Remove; match on key only if value nil, else match both.
  */
 func (this *Segment) remove(key interface{}, hash uint32, value interface{}) (oldValue interface{}) {
-	first, ptable, idx := this.getFirst(hash)
-	e, tab := (*Entry)(first), *(*[]unsafe.Pointer)(ptable)
+	this.lock.Lock()
+	defer this.lock.Unlock()
 
-	for {
-		//next节点不可变，因此无须原子读
-		for e != nil && (e.hash != hash || key != e.key) {
-			e = e.next
-		}
+	c := this.count - 1
+	tab := this.table()
+	index := hash & uint32(len(tab)-1)
+	first := (*Entry)(tab[index])
+	e := first
 
-		if first != (atomic.LoadPointer(&tab[idx])) {
-			//first节点被改变，需要重新开始循环
-			first = (atomic.LoadPointer(&tab[idx]))
-			e = (*Entry)(first)
-			continue
-		}
-
-		removed := false
-		if e != nil {
-			v := e.Value()
-			if value == nil || value == v {
-				oldValue = v
-				//fmt.Println("remove", oldValue, value)
-				// All entries following removed node can stay
-				// in list, but all preceding ones need to be
-				// cloned.
-				//this.modCount++
-				newFirst := e.next
-				for p := (*Entry)(first); p != e; p = p.next {
-					newFirst = &Entry{p.key, p.hash, p.value, newFirst}
-				}
-				if atomic.CompareAndSwapPointer(&tab[idx], first, unsafe.Pointer(newFirst)) {
-					removed = true
-				} else {
-					//首节点被改变
-					first = (atomic.LoadPointer(&tab[idx]))
-					e = (*Entry)(first)
-					oldValue = nil
-					//fmt.Println("continue1。1", oldValue, value)
-					continue
-				}
-			} else {
-				//remove是否需要再次检查first是否节点被改变？如果被改变视为添加新节点后牢节点被remove？
-				if first != (atomic.LoadPointer(&tab[idx])) {
-					first = (atomic.LoadPointer(&tab[idx]))
-					e = (*Entry)(first)
-					oldValue = nil
-					//fmt.Println("continue1.2", oldValue, value)
-					continue
-				}
-			}
-		}
-		//检查table是否被改变，防止替换到已经被rehash的table节点
-		if ptable != atomic.LoadPointer(&this.pTable) {
-			first, ptable, idx = this.getFirst(hash)
-			e, tab = (*Entry)(first), *(*[]unsafe.Pointer)(ptable)
-
-			oldValue = nil
-			//fmt.Println("continue2", oldValue, value)
-			continue
-		}
-		if removed {
-			atomic.AddInt32(&this.count, -1) //StoreInt32 can prevent reorder
-			atomic.AddInt32(this.pSumCount, -1)
-		}
-		return
+	for e != nil && (e.hash != hash || key != e.key) {
+		e = e.next
 	}
-	//this.lock.Lock()
-	//defer this.lock.Unlock()
 
-	//c := this.count - 1
-	//tab := this.table()
-	//index := hash & uint32(len(tab)-1)
-	//first := (*Entry)(tab[index])
-	//e := first
-
-	//for e != nil && (e.hash != hash || key != e.key) {
-	//	e = e.next
-	//}
-
-	//if e != nil {
-	//	v := e.fastValue()
-	//	if value == nil || value == v {
-	//		oldValue = v
-	//		// All entries following removed node can stay
-	//		// in list, but all preceding ones need to be
-	//		// cloned.
-	//		//this.modCount++
-	//		newFirst := e.next
-	//		for p := first; p != e; p = p.next {
-	//			newFirst = &Entry{p.key, p.hash, p.value, newFirst}
-	//		}
-	//		tab[index] = unsafe.Pointer(newFirst)
-	//		atomic.StoreInt32(&this.count, c) //this.count = c
-	//		atomic.AddInt32(this.pSumCount, -1)
-	//	}
-	//}
-	//return
+	if e != nil {
+		v := e.fastValue()
+		if value == nil || value == v {
+			oldValue = v
+			// All entries following removed node can stay
+			// in list, but all preceding ones need to be
+			// cloned.
+			//this.modCount++
+			newFirst := e.next
+			for p := first; p != e; p = p.next {
+				newFirst = &Entry{p.key, p.hash, p.value, newFirst}
+			}
+			tab[index] = unsafe.Pointer(newFirst)
+			atomic.StoreInt32(&this.count, c) //this.count = c
+			atomic.AddInt32(this.sumCount, -1)
+		}
+	}
+	return
 }
 
 func (this *Segment) clear() {
@@ -907,7 +739,7 @@ func (this *Segment) clear() {
 		}
 		//this.modCount++
 		atomic.StoreInt32(&this.count, 0) //this.count = 0 // write-volatile
-		atomic.AddInt32(this.pSumCount, -1*count)
+		atomic.AddInt32(this.sumCount, -1*count)
 	}
 }
 
@@ -917,8 +749,30 @@ func (this *ConcurrentMap) newSegment(initialCapacity int, lf float32) (s *Segme
 	table := make([]unsafe.Pointer, initialCapacity)
 	s.setTable(table)
 	s.lock = new(sync.Mutex)
-	s.pSumCount = &this.count
+	s.sumCount = &this.count
 	return
+}
+
+/**
+ * Applies a supplemental hash function to a given hashCode, which
+ * defends against poor quality hash functions.  This is critical
+ * because ConcurrentHashMap uses power-of-two length hash tables,
+ * that otherwise encounter collisions for hashCodes that do not
+ * differ in lower or upper bits.
+ */
+func hash2(h uint32) uint32 {
+	//// Spread bits to regularize both segment and index locations,
+	//// using variant of single-word Wang/Jenkins hash.
+	//h += (h << 15) ^ 0xffffcd7d
+	//h ^= (h >> 10)
+	//h += (h << 3)
+	//h ^= (h >> 6)
+	//h += (h << 2) + (h << 14)
+	//return uint32(h ^ (h >> 16))
+
+	//Now all hashcode is created by FNVa, it isn't a poor quality hash function
+	//so I removes the hash operation for second time
+	return h
 }
 
 /* ---------------- Iterator Support -------------- */

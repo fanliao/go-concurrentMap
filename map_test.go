@@ -12,36 +12,10 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	//"sync/atomic"
+	"sync/atomic"
 	"testing"
-	//"time"
+	"time"
 )
-
-type user struct {
-	id   string
-	name string
-}
-
-func (u *user) Id() string {
-	return u.id
-}
-
-type Ider interface {
-	Id() string
-}
-
-type small struct {
-	id   byte
-	name byte
-}
-
-type FloatInt struct {
-	x float64
-	y int
-}
-
-type empty struct {
-}
 
 func TestNil(t *testing.T) {
 	c.Convey("Nil cannot be as key", t, func() {
@@ -106,7 +80,7 @@ func testConcurrentMap(t *testing.T, datas map[interface{}]interface{}) {
 	//test Put again
 	previou, err = m.Put(firstKey, firstVal)
 	if previou != firstVal || err != nil {
-		t.Errorf("Put %v, %v second time, return %v, %v, want %v, nil", firstKey, firstVal, previou, err, firstVal)
+		t.Errorf("Put %v, %v second time, return %v, %v, want %v, nil", firstKey, firstVal, firstVal, previou, err)
 	}
 
 	//test PutIfAbsent, if value is incorrect, PutIfAbsent will be ignored
@@ -143,32 +117,20 @@ func testConcurrentMap(t *testing.T, datas map[interface{}]interface{}) {
 
 	//test replace a value for a key
 	previou, err = m.Replace(secondaryKey, v)
-	v1, _ := m.Get(secondaryKey)
 	if previou != secondaryVal || err != nil {
 		t.Errorf("Replace %v, %v, return %v, %v, want %v, nil", secondaryKey, v, previou, err, secondaryVal)
-	}
-	if v1 == nil {
-		t.Errorf("cannot find %v", secondaryKey)
 	}
 
 	//test replace a value for a key-value pair, if value is incorrect, replace will ignored and return false
 	ok, err = m.CompareAndReplace(secondaryKey, secondaryVal, v)
-	v1, _ = m.Get(secondaryKey)
 	if ok != false || err != nil {
 		t.Errorf("ReplaceWithOld  %v, %v, %v, return %v, %v, want false, nil", secondaryKey, secondaryVal, v, ok, err)
-	}
-	if v1 == nil {
-		t.Errorf("cannot find %v", secondaryKey)
 	}
 
 	//test replace a value for a key-value pair, if value is correct, replace will success
 	ok, err = m.CompareAndReplace(secondaryKey, v, secondaryVal)
-	v1, _ = m.Get(secondaryKey)
 	if ok != true || err != nil {
 		t.Errorf("ReplaceWithOld %v, %v, %v, return %v, %v, want true, nil", secondaryKey, v, secondaryVal, ok, err)
-	}
-	if v1 == nil {
-		t.Errorf("cannot find %v", secondaryKey)
 	}
 
 	//test remove a key
@@ -521,42 +483,42 @@ func TestIterGrowAndDelete(t *testing.T) {
 	}
 }
 
-//func TestIterGrowAndDelete1(t *testing.T) {
-//	m := NewConcurrentMap(4) //	make(map[int]int, 4)
-//	for i := 0; i < 100; i++ {
-//		m.Put(i, i)
-//	}
-//	growflag := true
-//	itr := m.Iterator()
-//	for itr.HasNext() {
-//		entry := itr.NextEntry()
-//		k := entry.Key()
-//		//t.Log("k ad growflag111111", k, growflag)
-//		if growflag {
-//			// grow the table
-//			for i := 100; i < 1000; i++ {
-//				m.Put(i, i)
-//			}
-//			// delete all odd keys
-//			for i := 1; i < 1000; i += 2 {
-//				m.Remove(i)
-//			}
-//			growflag = false
-//		} else {
-//			if k.(int)&1 == 1 {
-//				itr := NewMapIterator(m)
-//				for itr.HasNext() {
-//					entry := itr.NextEntry()
-//					if entry.Key().(int)&1 == 1 {
-//						t.Error("odd value returned by itr")
-//					}
-//				}
-//				//ConcurrentMap cannot iterate the values changed outside iterator after grow
-//				//t.Error("odd value returned")
-//			}
-//		}
-//	}
-//}
+func TestIterGrowAndDelete1(t *testing.T) {
+	m := NewConcurrentMap(4) //	make(map[int]int, 4)
+	for i := 0; i < 100; i++ {
+		m.Put(i, i)
+	}
+	growflag := true
+	itr := m.Iterator()
+	for itr.HasNext() {
+		entry := itr.NextEntry()
+		k := entry.Key()
+		//t.Log("k ad growflag111111", k, growflag)
+		if growflag {
+			// grow the table
+			for i := 100; i < 1000; i++ {
+				m.Put(i, i)
+			}
+			// delete all odd keys
+			for i := 1; i < 1000; i += 2 {
+				m.Remove(i)
+			}
+			growflag = false
+		} else {
+			if k.(int)&1 == 1 {
+				itr := NewMapIterator(m)
+				for itr.HasNext() {
+					entry := itr.NextEntry()
+					if entry.Key().(int)&1 == 1 {
+						t.Error("odd value returned by itr")
+					}
+				}
+				//ConcurrentMap cannot iterate the values changed outside iterator after grow
+				//t.Error("odd value returned")
+			}
+		}
+	}
+}
 
 // make sure old bucket arrays don't get GCd while
 // an iterator is still using them.
@@ -845,134 +807,134 @@ func TestMapIterOrder(t *testing.T) {
 //}
 
 /*----------------test concurrent-------------------------------*/
-//func TestConcurrent(t *testing.T) {
-//	numCpu := runtime.NumCPU()
-//	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(numCpu))
-//	writeN := 2*numCpu + 1
-//	readN := 2*numCpu + 1
-//	n := 50
-//	var repeat int32 = 0
+func TestConcurrent(t *testing.T) {
+	numCpu := runtime.NumCPU()
+	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(numCpu))
+	writeN := 2*numCpu + 1
+	readN := 2*numCpu + 1
+	n := 1000000
+	var repeat int32 = 0
 
-//	wWg := new(sync.WaitGroup)
-//	wWg.Add(writeN)
-//	cDone := make(chan struct{})
-//	cm := NewConcurrentMap()
+	wWg := new(sync.WaitGroup)
+	wWg.Add(writeN)
+	cDone := make(chan struct{})
+	cm := NewConcurrentMap()
 
-//	//start writeN goroutines to write to map with repeated keys, and count the total number of repeated key
-//	for i := 0; i < writeN; i++ {
-//		j := i
-//		go func() {
-//			for k := 0; k < n; k++ {
-//				//0-99999, 50000-149999, 100000-19999, 150000-249999,200000-29999, 250000-349999
-//				key := k + (j * n / 2)
-//				if previous, err := cm.Put(key, strconv.Itoa(key)+strings.Repeat(" ", j)); err != nil {
-//					t.Errorf("Get error %v when concurrent write map", err)
-//					return
-//				} else if previous != nil {
-//					//count the total number of repeated key
-//					atomic.AddInt32(&repeat, 1)
-//				}
-//			}
-//			wWg.Done()
-//		}()
-//	}
+	//start writeN goroutines to write to map with repeated keys, and count the total number of repeated key
+	for i := 0; i < writeN; i++ {
+		j := i
+		go func() {
+			for k := 0; k < n; k++ {
+				//0-99999, 50000-149999, 100000-19999, 150000-249999,200000-29999, 250000-349999
+				key := k + (j * n / 2)
+				if previous, err := cm.Put(key, strconv.Itoa(key)+strings.Repeat(" ", j)); err != nil {
+					t.Errorf("Get error %v when concurrent write map", err)
+					return
+				} else if previous != nil {
+					//count the total number of repeated key
+					atomic.AddInt32(&repeat, 1)
+				}
+			}
+			wWg.Done()
+		}()
+	}
 
-//	go func() {
-//		wWg.Wait()
-//		close(cDone)
-//	}()
+	go func() {
+		wWg.Wait()
+		close(cDone)
+	}()
 
-//	//start readN goroutines to iterate the map
-//	rWg := new(sync.WaitGroup)
-//	rWg.Add(readN)
-//	for i := 0; i < readN; i++ {
-//		go func() {
-//			for {
-//				itr := NewMapIterator(cm)
-//				for itr.HasNext() {
-//					entry := itr.NextEntry()
-//					k := entry.Key().(int)
-//					v := entry.Value().(string)
-//					if strconv.Itoa(k) != strings.Trim(v, " ") {
-//						t.Errorf("Get %v by %v, want %v == strings.Trim(\"%v\")", v, k, v, k)
-//						return
-//					}
-//				}
+	//start readN goroutines to iterate the map
+	rWg := new(sync.WaitGroup)
+	rWg.Add(readN)
+	for i := 0; i < readN; i++ {
+		go func() {
+			for {
+				itr := NewMapIterator(cm)
+				for itr.HasNext() {
+					entry := itr.NextEntry()
+					k := entry.Key().(int)
+					v := entry.Value().(string)
+					if strconv.Itoa(k) != strings.Trim(v, " ") {
+						t.Errorf("Get %v by %v, want %v == strings.Trim(\"%v\")", v, k, v, k)
+						return
+					}
+				}
 
-//				//exit read goroutines if all write goroutines are done
-//				exit := false
-//				select {
-//				case <-cDone:
-//					exit = true
-//					break
-//				case <-time.After(1 * time.Microsecond):
-//				}
+				//exit read goroutines if all write goroutines are done
+				exit := false
+				select {
+				case <-cDone:
+					exit = true
+					break
+				case <-time.After(1 * time.Microsecond):
+				}
 
-//				if exit {
-//					break
-//				}
-//			}
-//			rWg.Done()
-//		}()
-//	}
+				if exit {
+					break
+				}
+			}
+			rWg.Done()
+		}()
+	}
 
-//	//Start a goroutines to count the size of concurrentMap and total number of repeated keys
-//	//after all write goroutines are done
-//	cLast := make(chan struct{})
-//	go func() {
-//		wWg.Wait()
-//		if repeat != int32((writeN-1)*(n/2)) {
-//			t.Errorf("Repeat %v, want %v", repeat, (writeN-1)*(n/2))
-//		}
+	//Start a goroutines to count the size of concurrentMap and total number of repeated keys
+	//after all write goroutines are done
+	cLast := make(chan struct{})
+	go func() {
+		wWg.Wait()
+		if repeat != int32((writeN-1)*(n/2)) {
+			t.Errorf("Repeat %v, want %v", repeat, (writeN-1)*(n/2))
+		}
 
-//		size := cm.Size()
-//		if size != int32(n/2+writeN*(n/2)) {
-//			t.Errorf("Size is %v, want %v", size, n/2+writeN*(n/2))
-//		}
+		size := cm.Size()
+		if size != int32(n/2+writeN*(n/2)) {
+			t.Errorf("Size is %v, want %v", size, n/2+writeN*(n/2))
+		}
 
-//		cm.Clear()
-//		size = cm.Size()
-//		if size != 0 {
-//			t.Errorf("Size is %v after calling Clear(), want %v", size, 0)
-//		}
-//		close(cLast)
-//	}()
+		cm.Clear()
+		size = cm.Size()
+		if size != 0 {
+			t.Errorf("Size is %v after calling Clear(), want %v", size, 0)
+		}
+		close(cLast)
+	}()
 
-//	rWg.Wait()
-//	<-cLast
+	rWg.Wait()
+	<-cLast
+}
+
+//below code are used in readme.txt
+//func Test1(t *testing.T) {
+//	m := NewConcurrentMap()
+
+//	previou, err := m.Put(1, 10) //return nil, nil
+//	t.Log("1.", previou, err)
+//	previou, err = m.PutIfAbsent(1, 20) //return 10, nil
+//	t.Log("2.", previou, err)
+
+//	val, err := m.Get(1) //return 10, nil
+//	t.Log("3.", val, err)
+//	s := m.Size() //return 1
+//	t.Log("4.", s)
+
+//	m.PutAll(map[interface{}]interface{}{
+//		1: 100,
+//		2: 200,
+//	})
+//	ok, err := m.RemoveEntry(1, 100) //return true, nil
+//	t.Log("5.", ok, err)
+
+//	previou, err = m.Replace(2, 20) //return 200, nil
+//	t.Log("6.", previou, err)
+//	ok, err = m.CompareAndReplace(2, 200, 20) //return false, nil
+//	t.Log("7.", ok, err)
+
+//	previou, err = m.Remove(2) //return 20, nil
+//	t.Log("8.", previou, err)
+
+//	m.Clear()
+//	s = m.Size() //return 0
+//	t.Log("9.", s)
+
 //}
-
-////below code are used in readme.txt
-////func Test1(t *testing.T) {
-////	m := NewConcurrentMap()
-
-////	previou, err := m.Put(1, 10) //return nil, nil
-////	t.Log("1.", previou, err)
-////	previou, err = m.PutIfAbsent(1, 20) //return 10, nil
-////	t.Log("2.", previou, err)
-
-////	val, err := m.Get(1) //return 10, nil
-////	t.Log("3.", val, err)
-////	s := m.Size() //return 1
-////	t.Log("4.", s)
-
-////	m.PutAll(map[interface{}]interface{}{
-////		1: 100,
-////		2: 200,
-////	})
-////	ok, err := m.RemoveEntry(1, 100) //return true, nil
-////	t.Log("5.", ok, err)
-
-////	previou, err = m.Replace(2, 20) //return 200, nil
-////	t.Log("6.", previou, err)
-////	ok, err = m.CompareAndReplace(2, 200, 20) //return false, nil
-////	t.Log("7.", ok, err)
-
-////	previou, err = m.Remove(2) //return 20, nil
-////	t.Log("8.", previou, err)
-
-////	m.Clear()
-////	s = m.Size() //return 0
-////	t.Log("9.", s)
-
-////}
