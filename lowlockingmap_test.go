@@ -1,9 +1,9 @@
 package concurrent
 
 import (
-	//"errors"
+	"errors"
 	"fmt"
-	//c "github.com/smartystreets/goconvey/convey"
+	c "github.com/smartystreets/goconvey/convey"
 	"math"
 	"math/rand"
 	"reflect"
@@ -17,42 +17,42 @@ import (
 	"time"
 )
 
-//func TestNil_LowLocking(t *testing.T) {
-//	c.Convey("Nil cannot be as key", t, func() {
-//		cm := NewLowLockingMap()
-//		_, err := cm.Put(nil, 1)
-//		c.So(err, c.ShouldNotBeNil)
+func TestNil_LowLocking(t *testing.T) {
+	c.Convey("Nil cannot be as key", t, func() {
+		cm := NewLowLockingMap()
+		_, err := cm.Put(nil, 1)
+		c.So(err, c.ShouldNotBeNil)
 
-//		var nilVal interface{} = nil
-//		_, err = cm.Put(nilVal, 1)
-//		c.So(err, c.ShouldNotBeNil)
+		var nilVal interface{} = nil
+		_, err = cm.Put(nilVal, 1)
+		c.So(err, c.ShouldNotBeNil)
 
-//		var nilPtr *string = nil
-//		nilVal = nilPtr
-//		_, err = cm.Put(nilVal, 1)
-//		c.So(err, c.ShouldNotBeNil)
+		var nilPtr *string = nil
+		nilVal = nilPtr
+		_, err = cm.Put(nilVal, 1)
+		c.So(err, c.ShouldNotBeNil)
 
-//		_, err = cm.Put(1, nil)
-//		c.So(err, c.ShouldNotBeNil)
+		_, err = cm.Put(1, nil)
+		c.So(err, c.ShouldNotBeNil)
 
-//		_, err = cm.Put(1, nilVal)
-//		c.So(err, c.ShouldNotBeNil)
+		_, err = cm.Put(1, nilVal)
+		c.So(err, c.ShouldNotBeNil)
 
-//		nilVal = nilPtr
-//		_, err = cm.Put(1, nilVal)
-//		c.So(err, c.ShouldNotBeNil)
+		nilVal = nilPtr
+		_, err = cm.Put(1, nilVal)
+		c.So(err, c.ShouldNotBeNil)
 
-//		_, err = cm.Get(nil)
-//		c.So(err, c.ShouldNotBeNil)
+		_, err = cm.Get(nil)
+		c.So(err, c.ShouldNotBeNil)
 
-//		_, err = cm.Get(nilVal)
-//		c.So(err, c.ShouldNotBeNil)
+		_, err = cm.Get(nilVal)
+		c.So(err, c.ShouldNotBeNil)
 
-//		nilVal = nilPtr
-//		_, err = cm.Get(nilVal)
-//		c.So(err, c.ShouldNotBeNil)
-//	})
-//}
+		nilVal = nilPtr
+		_, err = cm.Get(nilVal)
+		c.So(err, c.ShouldNotBeNil)
+	})
+}
 
 /*-------------test different types as key------------------------*/
 func test_LowLockingMap(t *testing.T, datas map[interface{}]interface{}) {
@@ -146,77 +146,77 @@ func test_LowLockingMap(t *testing.T, datas map[interface{}]interface{}) {
 	}
 }
 
-//func TestIntKey_LowLocking(t *testing.T) {
-//	testConcurrentMap(t, map[interface{}]interface{}{
-//		1: 10,
-//		2: 20,
-//		3: 30,
-//		4: 40,
-//	})
-//}
+func TestIntKey_LowLocking(t *testing.T) {
+	testConcurrentMap(t, map[interface{}]interface{}{
+		1: 10,
+		2: 20,
+		3: 30,
+		4: 40,
+	})
+}
 
-//func TestStringKey_LowLocking(t *testing.T) {
-//	testConcurrentMap(t, map[interface{}]interface{}{
-//		strconv.Itoa(1): 10,
-//		strconv.Itoa(2): 20,
-//		strconv.Itoa(3): 30,
-//		strconv.Itoa(4): 40,
-//	})
-//}
+func TestStringKey_LowLocking(t *testing.T) {
+	testConcurrentMap(t, map[interface{}]interface{}{
+		strconv.Itoa(1): 10,
+		strconv.Itoa(2): 20,
+		strconv.Itoa(3): 30,
+		strconv.Itoa(4): 40,
+	})
+}
 
-//func Testfloat32Key_LowLocking(t *testing.T) {
-//	testConcurrentMap(t, map[interface{}]interface{}{
-//		float32(1): 10,
-//		float32(2): 20,
-//		float32(3): 30,
-//		float32(4): 40,
-//	})
-//}
+func Testfloat32Key_LowLocking(t *testing.T) {
+	testConcurrentMap(t, map[interface{}]interface{}{
+		float32(1): 10,
+		float32(2): 20,
+		float32(3): 30,
+		float32(4): 40,
+	})
+}
 
-//func Testfloat64Key_LowLocking(t *testing.T) {
-//	testConcurrentMap(t, map[interface{}]interface{}{
-//		float64(1): 10,
-//		float64(2): 20,
-//		float64(3): 30,
-//		float64(4): 40,
-//	})
-//}
+func Testfloat64Key_LowLocking(t *testing.T) {
+	testConcurrentMap(t, map[interface{}]interface{}{
+		float64(1): 10,
+		float64(2): 20,
+		float64(3): 30,
+		float64(4): 40,
+	})
+}
 
-//func TestPtr_LowLocking(t *testing.T) {
-//	a, b, c, d := 1, 2, 3, 4
-//	testConcurrentMap(t, map[interface{}]interface{}{
-//		&a: 10,
-//		&b: 20,
-//		&c: 30,
-//		&d: 40,
-//	})
+func TestPtr_LowLocking(t *testing.T) {
+	a, b, c, d := 1, 2, 3, 4
+	testConcurrentMap(t, map[interface{}]interface{}{
+		&a: 10,
+		&b: 20,
+		&c: 30,
+		&d: 40,
+	})
 
-//	cm := NewLowLockingMap()
-//	cm.Put(&a, 10)
+	cm := NewLowLockingMap()
+	cm.Put(&a, 10)
 
-//	e := a
-//	if v, err := cm.Get(&e); v != nil || err != nil {
-//		t.Errorf("Get %v, return %v, %v, want %v", &e, v, err, nil)
-//	}
-//}
+	e := a
+	if v, err := cm.Get(&e); v != nil || err != nil {
+		t.Errorf("Get %v, return %v, %v, want %v", &e, v, err, nil)
+	}
+}
 
-//func TestEmptyInterface_LowLocking(t *testing.T) {
-//	var a, b, c, d interface{} = 1, 2, 3, 4
-//	testConcurrentMap(t, map[interface{}]interface{}{
-//		a: 10,
-//		b: 20,
-//		c: 30,
-//		d: 40,
-//	})
+func TestEmptyInterface_LowLocking(t *testing.T) {
+	var a, b, c, d interface{} = 1, 2, 3, 4
+	testConcurrentMap(t, map[interface{}]interface{}{
+		a: 10,
+		b: 20,
+		c: 30,
+		d: 40,
+	})
 
-//	cm := NewLowLockingMap()
-//	cm.Put(a, 10)
+	cm := NewLowLockingMap()
+	cm.Put(a, 10)
 
-//	e := a
-//	if v, err := cm.Get(e); v != 10 || err != nil {
-//		t.Errorf("Get %v, return %v, %v, want %v", &e, v, err, 10)
-//	}
-//}
+	e := a
+	if v, err := cm.Get(e); v != 10 || err != nil {
+		t.Errorf("Get %v, return %v, %v, want %v", &e, v, err, 10)
+	}
+}
 
 type user struct {
 	id   string
@@ -231,165 +231,165 @@ type Ider interface {
 	Id() string
 }
 
-//func TestInterface_LowLocking(t *testing.T) {
-//	var a, b, c, d Ider = &user{"1", "n1"}, &user{"2", "n2"}, &user{"3", "n3"}, &user{"4", "n4"}
-//	testConcurrentMap(t, map[interface{}]interface{}{
-//		a: 10,
-//		b: 20,
-//		c: 30,
-//		d: 40,
-//	})
+func TestInterface_LowLocking(t *testing.T) {
+	var a, b, c, d Ider = &user{"1", "n1"}, &user{"2", "n2"}, &user{"3", "n3"}, &user{"4", "n4"}
+	testConcurrentMap(t, map[interface{}]interface{}{
+		a: 10,
+		b: 20,
+		c: 30,
+		d: 40,
+	})
 
-//	//test using the interface object and original value as key, two value should return the same hash code
-//	cm := NewLowLockingMap()
-//	cm.Put(a, 10)
-//	e := a.(*user)
-//	if v, err := cm.Get(e); v != 10 || err != nil {
-//		t.Errorf("Get %v, return %v, %v, want %v", &e, v, err, 10)
-//	}
-//}
+	//test using the interface object and original value as key, two value should return the same hash code
+	cm := NewLowLockingMap()
+	cm.Put(a, 10)
+	e := a.(*user)
+	if v, err := cm.Get(e); v != 10 || err != nil {
+		t.Errorf("Get %v, return %v, %v, want %v", &e, v, err, 10)
+	}
+}
 
 type small struct {
 	id   byte
 	name byte
 }
 
-//func TestSmallStruct_LowLocking(t *testing.T) {
-//	a, b, c, d := small{1, 1}, small{2, 2}, small{3, 3}, small{4, 4}
-//	testConcurrentMap(t, map[interface{}]interface{}{
-//		a: 10,
-//		b: 20,
-//		c: 30,
-//		d: 40,
-//	})
+func TestSmallStruct_LowLocking(t *testing.T) {
+	a, b, c, d := small{1, 1}, small{2, 2}, small{3, 3}, small{4, 4}
+	testConcurrentMap(t, map[interface{}]interface{}{
+		a: 10,
+		b: 20,
+		c: 30,
+		d: 40,
+	})
 
-//	//test using the interface object and original value as key, two value should return the same hash code
-//	cm := NewLowLockingMap()
-//	cm.Put(a, 10)
-//	e := small{1, 1}
-//	if v, err := cm.Get(e); v != 10 || err != nil {
-//		t.Errorf("Get %v, return %v, %v, want %v", &e, v, err, 10)
+	//test using the interface object and original value as key, two value should return the same hash code
+	cm := NewLowLockingMap()
+	cm.Put(a, 10)
+	e := small{1, 1}
+	if v, err := cm.Get(e); v != 10 || err != nil {
+		t.Errorf("Get %v, return %v, %v, want %v", &e, v, err, 10)
+	}
+}
+
+func TestUnableHash_LowLocking(t *testing.T) {
+	testHash := func(k interface{}) (err error) {
+		defer func() {
+			if e := recover(); e != nil {
+				err = errors.New("")
+			}
+		}()
+		cm := NewLowLockingMap()
+		cm.Put(k, 1)
+		return
+	}
+
+	err := testHash([]int{1})
+	if err == nil {
+		t.Errorf("Put slice, return nil, should be not nil")
+	}
+
+	f := func() {}
+	err = testHash(f)
+	if err == nil {
+		t.Errorf("Put function, return nil, should be not nil")
+	}
+
+	err = testHash(map[int]int{1: 1})
+	if err == nil {
+		t.Errorf("Put map, return nil, should be not nil")
+	}
+}
+
+/*--------test cases copied from go standard library's map_test.go--------------------*/
+//TestNegativeZero fail
+//// negative zero is a good test because:
+////  1) 0 and -0 are equal, yet have distinct representations.
+////  2) 0 is represented as all zeros, -0 isn't.
+//// I'm not sure the language spec actually requires this behavior,
+//// but it's what the current map implementation does.
+//func TestNegativeZero(t *testing.T) {
+//	m := NewLowLockingMap(0)
+//	var zero float64 = +0.0
+//	var nzero float64 = math.Copysign(0.0, -1.0)
+
+//	m.Put(zero, true)
+//	m.Put(nzero, true) // should overwrite +0 entry
+
+//	if m.Size() != 1 {
+//		t.Error("length wrong", m.Size())
 //	}
-//}
 
-//func TestUnableHash_LowLocking(t *testing.T) {
-//	testHash := func(k interface{}) (err error) {
-//		defer func() {
-//			if e := recover(); e != nil {
-//				err = errors.New("")
+//	itr := NewHashIterator(m)
+//	for {
+//		if itr.HasNext() {
+//			e := itr.NextEntry()
+//			if math.Copysign(1.0, e.key.(float64)) > 0 {
+//				t.Error("wrong sign")
 //			}
-//		}()
-//		cm := NewLowLockingMap()
-//		cm.Put(k, 1)
-//		return
+//		} else {
+//			break
+//		}
 //	}
 
-//	err := testHash([]int{1})
-//	if err == nil {
-//		t.Errorf("Put slice, return nil, should be not nil")
-//	}
+//	m = NewLowLockingMap(0)
 
-//	f := func() {}
-//	err = testHash(f)
-//	if err == nil {
-//		t.Errorf("Put function, return nil, should be not nil")
-//	}
+//	m.Put(nzero, true)
+//	m.Put(zero, true) // should overwrite -0.0 entry
 
-//	err = testHash(map[int]int{1: 1})
-//	if err == nil {
-//		t.Errorf("Put map, return nil, should be not nil")
-//	}
-//}
-
-///*--------test cases copied from go standard library's map_test.go--------------------*/
-////TestNegativeZero fail
-////// negative zero is a good test because:
-//////  1) 0 and -0 are equal, yet have distinct representations.
-//////  2) 0 is represented as all zeros, -0 isn't.
-////// I'm not sure the language spec actually requires this behavior,
-////// but it's what the current map implementation does.
-////func TestNegativeZero(t *testing.T) {
-////	m := NewLowLockingMap(0)
-////	var zero float64 = +0.0
-////	var nzero float64 = math.Copysign(0.0, -1.0)
-
-////	m.Put(zero, true)
-////	m.Put(nzero, true) // should overwrite +0 entry
-
-////	if m.Size() != 1 {
-////		t.Error("length wrong", m.Size())
-////	}
-
-////	itr := NewHashIterator(m)
-////	for {
-////		if itr.HasNext() {
-////			e := itr.NextEntry()
-////			if math.Copysign(1.0, e.key.(float64)) > 0 {
-////				t.Error("wrong sign")
-////			}
-////		} else {
-////			break
-////		}
-////	}
-
-////	m = NewLowLockingMap(0)
-
-////	m.Put(nzero, true)
-////	m.Put(zero, true) // should overwrite -0.0 entry
-
-////	if m.Size() != 1 {
-////		t.Error("length wrong")
-////	}
-
-////	itr = NewHashIterator(m)
-////	for {
-////		if itr.HasNext() {
-////			e := itr.NextEntry()
-////			if math.Copysign(1.0, e.key.(float64)) < 0 {
-////				t.Error("wrong sign")
-////			}
-////		} else {
-////			break
-////		}
-////	}
-////}
-
-//// nan is a good test because nan != nan, and nan has
-//// a randomized hash value.
-//func TestNan_LowLocking(t *testing.T) {
-//	fmt.Println("put-2")
-//	m := NewLowLockingMap() //make(map[float64]int, 0)
-//	fmt.Println("put-1")
-//	nan := math.NaN()
-//	fmt.Println("put0")
-//	m.Put(nan, 1)
-//	fmt.Println("put1")
-//	m.Put(nan, 2)
-//	fmt.Println("put2")
-//	m.Put(nan, 4)
-//	if m.Size() != 3 {
+//	if m.Size() != 1 {
 //		t.Error("length wrong")
 //	}
-//	s := 0
-//	itr := m.Iterator()
-//	fmt.Println("start next")
-//	for itr.HasNext() {
-//		fmt.Println("start nextentry: ")
-//		entry := itr.NextEntry()
-//		fmt.Println("entry: ", entry)
-//		k, v := entry.Key().(float64), entry.Value().(int)
-//		if k == k {
-//			t.Error("nan disappeared")
+
+//	itr = NewHashIterator(m)
+//	for {
+//		if itr.HasNext() {
+//			e := itr.NextEntry()
+//			if math.Copysign(1.0, e.key.(float64)) < 0 {
+//				t.Error("wrong sign")
+//			}
+//		} else {
+//			break
 //		}
-//		if (v & (v - 1)) != 0 {
-//			t.Error("value wrong")
-//		}
-//		s |= v
-//	}
-//	if s != 7 {
-//		t.Error("values wrong")
 //	}
 //}
+
+// nan is a good test because nan != nan, and nan has
+// a randomized hash value.
+func TestNan_LowLocking(t *testing.T) {
+	fmt.Println("put-2")
+	m := NewLowLockingMap() //make(map[float64]int, 0)
+	fmt.Println("put-1")
+	nan := math.NaN()
+	fmt.Println("put0")
+	m.Put(nan, 1)
+	fmt.Println("put1")
+	m.Put(nan, 2)
+	fmt.Println("put2")
+	m.Put(nan, 4)
+	if m.Size() != 3 {
+		t.Error("length wrong")
+	}
+	s := 0
+	itr := m.Iterator()
+	fmt.Println("start next")
+	for itr.HasNext() {
+		fmt.Println("start nextentry: ")
+		entry := itr.NextEntry()
+		fmt.Println("entry: ", entry)
+		k, v := entry.Key().(float64), entry.Value().(int)
+		if k == k {
+			t.Error("nan disappeared")
+		}
+		if (v & (v - 1)) != 0 {
+			t.Error("value wrong")
+		}
+		s |= v
+	}
+	if s != 7 {
+		t.Error("values wrong")
+	}
+}
 
 func TestGrowWithNaN_LowLocking(t *testing.T) {
 	m := NewLowLockingMap(0) //make(map[float64]int, 0)
