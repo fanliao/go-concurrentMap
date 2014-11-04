@@ -110,7 +110,7 @@ func hashMem(i interface{}, hashFunc hash.Hash32) {
 	//else ei.word will store underlying value
 	if size > ptrSize {
 		addr := ei.word
-		hashPtrData(uintptr(addr), size, hashFunc)
+		hashPtrData(unsafe.Pointer(uintptr(addr)), size, hashFunc)
 	} else {
 		data := ei.word
 		hashData(uintptr(data), size, hashFunc)
@@ -118,41 +118,45 @@ func hashMem(i interface{}, hashFunc hash.Hash32) {
 	return
 }
 
-func hashPtrData(ptr uintptr, size uintptr, hashFunc hash.Hash32) {
-	idx := 0
+func hashPtrData(basePtr unsafe.Pointer, size uintptr, hashFunc hash.Hash32) {
+	offset := uintptr(0)
 	for {
+		/* cannot store unsafe.Pointer in an uintptr according to https://groups.google.com/forum/#!topic/golang-dev/bfMdPAQigfM
+		 * but the expression
+		 *     unsafe.Pointer(uintptr(basePtr) + offset)
+		 * is safe under Go 1.3
+		 */
+		//d := uintptr(basePtr) + offset
+		//ptr := unsafe.Pointer(d)
+		ptr := unsafe.Pointer(uintptr(basePtr) + offset)
+
 		if size >= 32 {
-			bytes := *(*[32]byte)(unsafe.Pointer(ptr))
+			bytes := *(*[32]byte)(ptr)
 			size -= 32
-			ptr += 32
-			idx += 32
+			offset += 32
 			hashFunc.Write(bytes[:])
 		} else if size >= 16 {
-			bytes := *(*[16]byte)(unsafe.Pointer(ptr))
+			bytes := *(*[16]byte)(ptr)
 			size -= 16
-			ptr += 16
-			idx += 16
+			offset += 16
 			hashFunc.Write(bytes[:])
 		} else if size >= 8 {
-			bytes := *(*[8]byte)(unsafe.Pointer(ptr))
+			bytes := *(*[8]byte)(ptr)
 			size -= 8
-			ptr += 8
-			idx += 8
+			offset += 8
 			hashFunc.Write(bytes[:])
 		} else if size >= 4 {
-			bytes := *(*[4]byte)(unsafe.Pointer(ptr))
+			bytes := *(*[4]byte)(ptr)
 			size -= 4
-			ptr += 4
-			idx += 4
+			offset += 4
 			hashFunc.Write(bytes[:])
 		} else if size >= 2 {
-			bytes := *(*[2]byte)(unsafe.Pointer(ptr))
+			bytes := *(*[2]byte)(ptr)
 			size -= 2
-			ptr += 2
-			idx += 2
+			offset += 2
 			hashFunc.Write(bytes[:])
 		} else if size == 1 {
-			bytes := *(*[1]byte)(unsafe.Pointer(ptr))
+			bytes := *(*[1]byte)(ptr)
 			hashFunc.Write(bytes[:])
 			return
 		}
