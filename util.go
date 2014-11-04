@@ -1,6 +1,7 @@
 package concurrent
 
 import (
+	"fmt"
 	"hash"
 	"hash/fnv"
 	"math/rand"
@@ -96,6 +97,7 @@ func hashI(val interface{}) (hashCode uint32) {
 			//for array, struct and chan, will get byte array to calculate the hash code
 			hashMem(rv, h)
 			hashCode = h.Sum32()
+			fmt.Println("array, struct or chan", rv.Interface(), hashCode, reflect.ValueOf(rv).Type().Size())
 		}
 	}
 	return
@@ -103,6 +105,7 @@ func hashI(val interface{}) (hashCode uint32) {
 
 //hashMem writes byte array of underlying value to hash function
 func hashMem(i interface{}, hashFunc hash.Hash32) {
+	fmt.Println("hashMem")
 	size := reflect.ValueOf(i).Type().Size()
 	ei := (*emptyInterface)(unsafe.Pointer(&i))
 
@@ -113,6 +116,7 @@ func hashMem(i interface{}, hashFunc hash.Hash32) {
 		hashPtrData(unsafe.Pointer(uintptr(addr)), size, hashFunc)
 	} else {
 		data := ei.word
+		fmt.Println("hashData", uintptr(data), size, ptrSize)
 		hashData(uintptr(data), size, hashFunc)
 	}
 	return
@@ -134,6 +138,7 @@ func hashPtrData(basePtr unsafe.Pointer, size uintptr, hashFunc hash.Hash32) {
 			bytes := *(*[32]byte)(ptr)
 			size -= 32
 			offset += 32
+			fmt.Println("hashPtrData", ptr, bytes[:])
 			hashFunc.Write(bytes[:])
 		} else if size >= 16 {
 			bytes := *(*[16]byte)(ptr)

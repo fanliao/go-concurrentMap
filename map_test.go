@@ -77,10 +77,11 @@ func testConcurrentMap(t *testing.T, datas map[interface{}]interface{}) {
 		t.Errorf("Put %v, %v firstly, return %v, %v, want nil, nil", firstKey, firstVal, previou, err)
 	}
 
+	fmt.Println("bbbbbbbbbbbbbbbbb")
 	//test Put again
 	previou, err = m.Put(firstKey, firstVal)
 	if previou != firstVal || err != nil {
-		t.Errorf("Put %v, %v second time, return %v, %v, want %v, nil", firstKey, firstVal, firstVal, previou, err)
+		t.Errorf("Put %v, %v second time, return %v, %v, want %v, nil", firstKey, firstVal, previou, err, firstVal)
 	}
 
 	//test PutIfAbsent, if value is incorrect, PutIfAbsent will be ignored

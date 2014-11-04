@@ -2,7 +2,9 @@ package concurrent
 
 import (
 	"errors"
+	"fmt"
 	"math"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -58,6 +60,10 @@ var (
 
 //segments is read-only, don't need synchronized
 type ConcurrentMap struct {
+	/**
+	 * Kind of Reflect value for key
+	 */
+	kind unsafe.Pointer
 	/**
 	 * Mask value for indexing into segments. The upper bits of a
 	 * key's hash code are used to choose the segment.
@@ -186,7 +192,11 @@ func (this *ConcurrentMap) Get(key interface{}) (value interface{}, err error) {
 	if isNil(key) {
 		return nil, NilKeyError
 	}
+	if atomic.LoadPointer(&this.kind) == nil {
+		return nil, nil
+	}
 	hash := hash2(hashI(key))
+	key = this.elemKey(key)
 	value = this.segmentFor(hash).get(key, hash)
 	return
 }
@@ -202,6 +212,11 @@ func (this *ConcurrentMap) ContainsKey(key interface{}) (found bool, err error) 
 	if isNil(key) {
 		return false, NilKeyError
 	}
+	if atomic.LoadPointer(&this.kind) == nil {
+		return false, nil
+	}
+
+	key = this.elemKey(key)
 	hash := hash2(hashI(key))
 	found = this.segmentFor(hash).containsKey(key, hash)
 	return
@@ -227,6 +242,8 @@ func (this *ConcurrentMap) Put(key interface{}, value interface{}) (previous int
 	if isNil(value) {
 		return nil, NilValueError
 	}
+
+	key = this.elemKey(key)
 	hash := hash2(hashI(key))
 	previous = this.segmentFor(hash).put(key, hash, value, false)
 	return
@@ -250,6 +267,8 @@ func (this *ConcurrentMap) PutIfAbsent(key interface{}, value interface{}) (prev
 	if isNil(value) {
 		return nil, NilValueError
 	}
+
+	key = this.elemKey(key)
 	hash := hash2(hashI(key))
 	previous = this.segmentFor(hash).put(key, hash, value, true)
 	return
@@ -283,6 +302,8 @@ func (this *ConcurrentMap) Remove(key interface{}) (previous interface{}, err er
 	if isNil(key) {
 		return nil, NilKeyError
 	}
+
+	key = this.elemKey(key)
 	hash := hash2(hashI(key))
 	previous = this.segmentFor(hash).remove(key, hash, nil)
 	return
@@ -301,6 +322,8 @@ func (this *ConcurrentMap) RemoveEntry(key interface{}, value interface{}) (ok b
 	if isNil(value) {
 		return false, NilValueError
 	}
+
+	key = this.elemKey(key)
 	hash := hash2(hashI(key))
 	ok = this.segmentFor(hash).remove(key, hash, value) != nil
 	return
@@ -320,6 +343,8 @@ func (this *ConcurrentMap) CompareAndReplace(key interface{}, oldValue interface
 	if isNil(oldValue) || isNil(newValue) {
 		return false, NilValueError
 	}
+
+	key = this.elemKey(key)
 	hash := hash2(hashI(key))
 	ok = this.segmentFor(hash).replaceWithOld(key, hash, oldValue, newValue)
 	return
@@ -339,6 +364,8 @@ func (this *ConcurrentMap) Replace(key interface{}, value interface{}) (previous
 	if isNil(value) {
 		return nil, NilValueError
 	}
+
+	key = this.elemKey(key)
 	hash := hash2(hashI(key))
 	previous = this.segmentFor(hash).replace(key, hash, value)
 	return
@@ -356,6 +383,27 @@ func (this *ConcurrentMap) Clear() {
 //Iterator returns a iterator for ConcurrentMap
 func (this *ConcurrentMap) Iterator() *MapIterator {
 	return NewMapIterator(this)
+}
+
+func (this *ConcurrentMap) elemKey(key interface{}) (ekey interface{}) {
+	var kind reflect.Kind
+	if atomic.LoadPointer(&this.kind) == nil {
+		kind = reflect.ValueOf(key).Kind()
+		atomic.StorePointer(&this.kind, unsafe.Pointer(&kind))
+	} else {
+		kind = *(*reflect.Kind)(atomic.LoadPointer(&this.kind))
+	}
+
+	ekey = key
+	kt := kind
+	for kt == reflect.Ptr {
+		ekey = reflect.ValueOf(ekey).Elem().Interface()
+		kt = reflect.ValueOf(ekey).Kind()
+	}
+	if kind == reflect.Ptr {
+		fmt.Printf("pass %v, key is %v, kind is %v, hash is %v\n", key, ekey, kt, hashI(ekey))
+	}
+	return
 }
 
 func newConcurrentMap3(initialCapacity int,
