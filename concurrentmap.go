@@ -3,7 +3,9 @@ package concurrent
 import (
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"math"
+	"math/rand"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -58,8 +60,21 @@ var (
 	IllegalArgError = errors.New("IllegalArgumentException")
 )
 
+type hasher interface {
+	Hash32() uint32
+	Equals(v2 interface{}) bool
+}
+
+type hashEnginer struct {
+	hashFunc   func(v interface{}) uint32
+	equalsFunc func(v1 interface{}, v2 interface{}) bool
+}
+
 //segments is read-only, don't need synchronized
 type ConcurrentMap struct {
+	engChecker *Once
+	eng        unsafe.Pointer
+
 	/**
 	 * Kind of Reflect value for key
 	 */
@@ -195,8 +210,8 @@ func (this *ConcurrentMap) Get(key interface{}) (value interface{}, err error) {
 	if atomic.LoadPointer(&this.kind) == nil {
 		return nil, nil
 	}
-	hash := hash2(hashI(key))
 	key = this.elemKey(key)
+	hash := hash2(hashI(key))
 	value = this.segmentFor(hash).get(key, hash)
 	return
 }
@@ -386,23 +401,274 @@ func (this *ConcurrentMap) Iterator() *MapIterator {
 }
 
 func (this *ConcurrentMap) elemKey(key interface{}) (ekey interface{}) {
-	var kind reflect.Kind
-	if atomic.LoadPointer(&this.kind) == nil {
-		kind = reflect.ValueOf(key).Kind()
-		atomic.StorePointer(&this.kind, unsafe.Pointer(&kind))
-	} else {
-		kind = *(*reflect.Kind)(atomic.LoadPointer(&this.kind))
+	defaultEqualsfunc := func(k1 interface{}, k2 interface{}) bool {
+		return k1 == k2
 	}
+	this.engChecker.Do(func() {
+		eng := &hashEnginer{}
+		val := key
 
-	ekey = key
-	kt := kind
-	for kt == reflect.Ptr {
-		ekey = reflect.ValueOf(ekey).Elem().Interface()
-		kt = reflect.ValueOf(ekey).Kind()
-	}
-	if kind == reflect.Ptr {
-		fmt.Printf("pass %v, key is %v, kind is %v, hash is %v\n", key, ekey, kt, hashI(ekey))
-	}
+		if _, ok := val.(hasher); ok {
+			eng.hashFunc = func(k interface{}) (hashCode uint32) {
+				return k.(hasher).Hash32()
+			}
+			eng.equalsFunc = func(k1 interface{}, k2 interface{}) bool {
+				return k1.(hasher).Equals(k2)
+			}
+		}
+		switch v := val.(type) {
+		case bool:
+			eng.hashFunc = func(k interface{}) (hashCode uint32) {
+				k1 := k.(bool)
+				h := fnv.New32a()
+				h.Write((*((*[1]byte)(unsafe.Pointer(&k1))))[:])
+				hashCode = h.Sum32()
+				return hashCode
+			}
+			eng.equalsFunc = defaultEqualsfunc
+			_ = v
+		case int:
+			eng.hashFunc = func(k interface{}) (hashCode uint32) {
+				k1 := k.(int)
+				h := fnv.New32a()
+				h.Write((*((*[intSize]byte)(unsafe.Pointer(&k1))))[:])
+				hashCode = h.Sum32()
+				return hashCode
+			}
+			eng.equalsFunc = defaultEqualsfunc
+			_ = v
+		case int8:
+			eng.hashFunc = func(k interface{}) (hashCode uint32) {
+				k1 := k.(int8)
+				h := fnv.New32a()
+				h.Write((*((*[1]byte)(unsafe.Pointer(&k1))))[:])
+				hashCode = h.Sum32()
+				return hashCode
+			}
+			eng.equalsFunc = defaultEqualsfunc
+		case int16:
+			eng.hashFunc = func(k interface{}) (hashCode uint32) {
+				k1 := k.(int16)
+				h := fnv.New32a()
+				h.Write((*((*[2]byte)(unsafe.Pointer(&k1))))[:])
+				hashCode = h.Sum32()
+				return hashCode
+			}
+			eng.equalsFunc = defaultEqualsfunc
+			_ = v
+		case int32:
+			eng.hashFunc = func(k interface{}) (hashCode uint32) {
+				k1 := k.(int32)
+				h := fnv.New32a()
+				h.Write((*((*[4]byte)(unsafe.Pointer(&k1))))[:])
+				hashCode = h.Sum32()
+				return hashCode
+			}
+			eng.equalsFunc = defaultEqualsfunc
+			_ = v
+		case int64:
+			eng.hashFunc = func(k interface{}) (hashCode uint32) {
+				k1 := k.(int64)
+				h := fnv.New32a()
+				h.Write((*((*[8]byte)(unsafe.Pointer(&k1))))[:])
+				hashCode = h.Sum32()
+				return hashCode
+			}
+			eng.equalsFunc = defaultEqualsfunc
+			_ = v
+		case uint:
+			eng.hashFunc = func(k interface{}) (hashCode uint32) {
+				k1 := k.(uint)
+				h := fnv.New32a()
+				h.Write((*((*[1]byte)(unsafe.Pointer(&k1))))[:])
+				hashCode = h.Sum32()
+				return hashCode
+			}
+			eng.equalsFunc = defaultEqualsfunc
+			_ = v
+		case uint8:
+			eng.hashFunc = func(k interface{}) (hashCode uint32) {
+				k1 := k.(uint8)
+				h := fnv.New32a()
+				h.Write((*((*[intSize]byte)(unsafe.Pointer(&k1))))[:])
+				hashCode = h.Sum32()
+				return hashCode
+			}
+			eng.equalsFunc = defaultEqualsfunc
+			_ = v
+		case uint16:
+			eng.hashFunc = func(k interface{}) (hashCode uint32) {
+				k1 := k.(uint16)
+				h := fnv.New32a()
+				h.Write((*((*[2]byte)(unsafe.Pointer(&k1))))[:])
+				hashCode = h.Sum32()
+				return hashCode
+			}
+			eng.equalsFunc = defaultEqualsfunc
+			_ = v
+		case uint32:
+			eng.hashFunc = func(k interface{}) (hashCode uint32) {
+				k1 := k.(uint32)
+				h := fnv.New32a()
+				h.Write((*((*[4]byte)(unsafe.Pointer(&k1))))[:])
+				hashCode = h.Sum32()
+				return hashCode
+			}
+			eng.equalsFunc = defaultEqualsfunc
+			_ = v
+		case uint64:
+			eng.hashFunc = func(k interface{}) (hashCode uint32) {
+				k1 := k.(uint64)
+				h := fnv.New32a()
+				h.Write((*((*[8]byte)(unsafe.Pointer(&k1))))[:])
+				hashCode = h.Sum32()
+				return hashCode
+			}
+			eng.equalsFunc = defaultEqualsfunc
+			_ = v
+		case uintptr:
+			eng.hashFunc = func(k interface{}) (hashCode uint32) {
+				k1 := k.(uintptr)
+				h := fnv.New32a()
+				h.Write((*((*[intSize]byte)(unsafe.Pointer(&k1))))[:])
+				hashCode = h.Sum32()
+				return hashCode
+			}
+			eng.equalsFunc = defaultEqualsfunc
+			_ = v
+		case float32:
+			eng.hashFunc = func(k interface{}) (hashCode uint32) {
+				k1 := k.(float32)
+				h := fnv.New32a()
+				//Nan != Nan, so use a rand number to generate hash code
+				if k1 != k1 {
+					k1 = rand.Float32()
+				}
+				h.Write((*((*[4]byte)(unsafe.Pointer(&k1))))[:])
+				hashCode = h.Sum32()
+				return hashCode
+			}
+			eng.equalsFunc = defaultEqualsfunc
+			_ = v
+		case float64:
+			eng.hashFunc = func(k interface{}) (hashCode uint32) {
+				k1 := k.(float64)
+				h := fnv.New32a()
+				//Nan != Nan, so use a rand number to generate hash code
+				if k1 != k1 {
+					k1 = rand.Float64()
+				}
+				h.Write((*((*[8]byte)(unsafe.Pointer(&k1))))[:])
+				hashCode = h.Sum32()
+				return hashCode
+			}
+			eng.equalsFunc = defaultEqualsfunc
+			_ = v
+		case complex64:
+			eng.hashFunc = func(k interface{}) (hashCode uint32) {
+				k1 := k.(complex64)
+				h := fnv.New32a()
+				h.Write((*((*[8]byte)(unsafe.Pointer(&k1))))[:])
+				hashCode = h.Sum32()
+				return hashCode
+			}
+			eng.equalsFunc = defaultEqualsfunc
+			_ = v
+		case complex128:
+			eng.hashFunc = func(k interface{}) (hashCode uint32) {
+				k1 := k.(complex128)
+				h := fnv.New32a()
+				h.Write((*((*[128]byte)(unsafe.Pointer(&k1))))[:])
+				hashCode = h.Sum32()
+				return hashCode
+			}
+			eng.equalsFunc = defaultEqualsfunc
+			_ = v
+		case string:
+			eng.hashFunc = func(k interface{}) (hashCode uint32) {
+				k1 := k.(string)
+				h := fnv.New32a()
+				h.Write([]byte(k1))
+				hashCode = h.Sum32()
+				return hashCode
+			}
+			eng.equalsFunc = defaultEqualsfunc
+			_ = v
+		default:
+			//some types can be used as key, we can use equals to test
+			_ = val == val
+			rv := reflect.ValueOf(val)
+			switch rv.Kind() {
+			case reflect.Ptr:
+				eng.hashFunc = func(k interface{}) (hashCode uint32) {
+					//ei.word stores the memory address of value that v points to, we use address to generate hash code
+					ei := (*emptyInterface)(unsafe.Pointer(&val))
+					hashCode = hashI(uintptr(ei.word))
+					return
+				}
+				eng.equalsFunc = defaultEqualsfunc
+			case reflect.Interface:
+				eng.hashFunc = func(k interface{}) (hashCode uint32) {
+					//for interface, we use contained value to generate the hash code
+					hashCode = hashI(rv.Elem())
+					return
+				}
+				eng.equalsFunc = defaultEqualsfunc
+			case reflect.Struct:
+				eng.hashFunc = func(k interface{}) (hashCode uint32) {
+					h := fnv.New32a()
+					//for interface, we use contained value to generate the hash code
+					hashMem(rv, h)
+					hashCode = h.Sum32()
+					fmt.Println("array, struct or chan", rv.Interface(), hashCode, reflect.ValueOf(rv).Type().Size())
+					return
+				}
+				eng.equalsFunc = defaultEqualsfunc
+			default:
+				eng.hashFunc = func(k interface{}) (hashCode uint32) {
+					h := fnv.New32a()
+					//for interface, we use contained value to generate the hash code
+					hashMem(rv, h)
+					hashCode = h.Sum32()
+					fmt.Println("array, struct or chan", rv.Interface(), hashCode, reflect.ValueOf(rv).Type().Size())
+					return
+				}
+				eng.equalsFunc = defaultEqualsfunc
+			}
+			_ = v
+			atomic.StorePointer(&this.eng, unsafe.Pointer(&eng))
+		}
+
+		return
+	})
+	return
+	//var kind reflect.Kind
+	//if atomic.LoadPointer(&this.kind) == nil {
+	//	kind = reflect.ValueOf(key).Kind()
+	//	atomic.StorePointer(&this.kind, unsafe.Pointer(&kind))
+	//} else {
+	//	kind = *(*reflect.Kind)(atomic.LoadPointer(&this.kind))
+	//}
+
+	//ekey = key
+	//kt := kind
+	//for kt == reflect.Ptr {
+	//	ekey = reflect.ValueOf(ekey).Elem().Interface()
+	//	kt = reflect.ValueOf(ekey).Kind()
+	//}
+	//if kind == reflect.Ptr {
+	//	fmt.Printf("pass %v, key is %v, kind is %v, hash is %v\n", key, ekey, kt, hashI(ekey))
+	//}
+	//return
+}
+
+func (this *ConcurrentMap) newSegment(initialCapacity int, lf float32) (s *Segment) {
+	s = new(Segment)
+	s.loadFactor = lf
+	table := make([]unsafe.Pointer, initialCapacity)
+	s.setTable(table)
+	s.lock = new(sync.Mutex)
+	s.eng = this.eng
 	return
 }
 
@@ -445,7 +711,7 @@ func newConcurrentMap3(initialCapacity int,
 	}
 
 	for i := 0; i < len(m.segments); i++ {
-		m.segments[i] = newSegment(cap, loadFactor)
+		m.segments[i] = m.newSegment(cap, loadFactor)
 	}
 	return
 }
@@ -547,6 +813,7 @@ func (this *Entry) storeValue(v *interface{}) {
 }
 
 type Segment struct {
+	eng unsafe.Pointer
 	/**
 	 * The number of elements in this segment's region.
 	 * Must use atomic package's LoadInt32 and StoreInt32 functions to read/write this field
@@ -585,6 +852,10 @@ type Segment struct {
 	loadFactor float32
 
 	lock *sync.Mutex
+}
+
+func (this *Segment) enginer() *hashEnginer {
+	return (*hashEnginer)(this.eng)
 }
 
 func (this *Segment) rehash() {
@@ -715,7 +986,7 @@ func (this *Segment) get(key interface{}, hash uint32) interface{} {
 	if atomic.LoadInt32(&this.count) != 0 { // atomic-read
 		e := this.getFirst(hash)
 		for e != nil {
-			if e.hash == hash && key == e.key {
+			if e.hash == hash && this.enginer().equalsFunc(e.key, key) {
 				v := e.Value()
 				if v != nil {
 					return v
@@ -732,7 +1003,7 @@ func (this *Segment) containsKey(key interface{}, hash uint32) bool {
 	if atomic.LoadInt32(&this.count) != 0 { // read-volatile
 		e := this.getFirst(hash)
 		for e != nil {
-			if e.hash == hash && key == e.key {
+			if e.hash == hash && this.enginer().equalsFunc(e.key, key) {
 				return true
 			}
 			e = e.next
@@ -746,7 +1017,7 @@ func (this *Segment) replaceWithOld(key interface{}, hash uint32, oldValue inter
 	defer this.lock.Unlock()
 
 	e := this.getFirst(hash)
-	for e != nil && (e.hash != hash || key != e.key) {
+	for e != nil && (e.hash != hash || !this.enginer().equalsFunc(e.key, key)) { //key != e.key) {
 		e = e.next
 	}
 
@@ -762,7 +1033,7 @@ func (this *Segment) replace(key interface{}, hash uint32, newValue interface{})
 	this.lock.Lock()
 	defer this.lock.Unlock()
 	e := this.getFirst(hash)
-	for e != nil && (e.hash != hash || key != e.key) {
+	for e != nil && (e.hash != hash || !this.enginer().equalsFunc(e.key, key)) { //key != e.key) {
 		e = e.next
 	}
 
@@ -796,7 +1067,7 @@ func (this *Segment) put(key interface{}, hash uint32, value interface{}, onlyIf
 	index := hash & uint32(len(tab)-1)
 	first := (*Entry)(tab[index])
 	e := first
-	for e != nil && (e.hash != hash || key != e.key) {
+	for e != nil && (e.hash != hash || !this.enginer().equalsFunc(e.key, key)) { //key != e.key) {
 		e = e.next
 	}
 
@@ -827,7 +1098,7 @@ func (this *Segment) remove(key interface{}, hash uint32, value interface{}) (ol
 	first := (*Entry)(tab[index])
 	e := first
 
-	for e != nil && (e.hash != hash || key != e.key) {
+	for e != nil && (e.hash != hash || !this.enginer().equalsFunc(e.key, key)) { //key != e.key) {
 		e = e.next
 	}
 
@@ -862,15 +1133,6 @@ func (this *Segment) clear() {
 		this.modCount++
 		atomic.StoreInt32(&this.count, 0) //this.count = 0 // write-volatile
 	}
-}
-
-func newSegment(initialCapacity int, lf float32) (s *Segment) {
-	s = new(Segment)
-	s.loadFactor = lf
-	table := make([]unsafe.Pointer, initialCapacity)
-	s.setTable(table)
-	s.lock = new(sync.Mutex)
-	return
 }
 
 /**
