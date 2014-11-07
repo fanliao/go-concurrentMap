@@ -209,8 +209,7 @@ func (this *ConcurrentMap) Get(key interface{}) (value interface{}, err error) {
 	//if atomic.LoadPointer(&this.kind) == nil {
 	//	return nil, nil
 	//}
-	this.elemKey(key)
-	hash := hash2(hashKey(key, (*hashEnginer)(this.eng)))
+	hash := hash2(hashKey(key, this, false))
 	Printf("Get, %v, %v\n", key, hash)
 	value = this.segmentFor(hash).get(key, hash)
 	return
@@ -231,8 +230,7 @@ func (this *ConcurrentMap) ContainsKey(key interface{}) (found bool, err error) 
 		return false, nil
 	}
 
-	this.elemKey(key)
-	hash := hash2(hashKey(key, (*hashEnginer)(this.eng)))
+	hash := hash2(hashKey(key, this, false))
 	Printf("ContainsKey, %v, %v\n", key, hash)
 	found = this.segmentFor(hash).containsKey(key, hash)
 	return
@@ -259,9 +257,7 @@ func (this *ConcurrentMap) Put(key interface{}, value interface{}) (previous int
 		return nil, NilValueError
 	}
 
-	this.elemKey(key)
-	Printf("this.eng is %v\n", (*hashEnginer)(this.eng).putFunc)
-	hash := hash2(hashKey(key, (*hashEnginer)(this.eng)))
+	hash := hash2(hashKey(key, this, true))
 	Printf("Put, %v, %v\n", key, hash)
 	previous = this.segmentFor(hash).put(key, hash, value, false)
 	return
@@ -286,8 +282,7 @@ func (this *ConcurrentMap) PutIfAbsent(key interface{}, value interface{}) (prev
 		return nil, NilValueError
 	}
 
-	this.elemKey(key)
-	hash := hash2(hashKey(key, (*hashEnginer)(this.eng)))
+	hash := hash2(hashKey(key, this, true))
 	Printf("PutIfAbsent, %v, %v\n", key, hash)
 	previous = this.segmentFor(hash).put(key, hash, value, true)
 	return
@@ -322,8 +317,7 @@ func (this *ConcurrentMap) Remove(key interface{}) (previous interface{}, err er
 		return nil, NilKeyError
 	}
 
-	this.elemKey(key)
-	hash := hash2(hashKey(key, (*hashEnginer)(this.eng)))
+	hash := hash2(hashKey(key, this, true))
 	Printf("Remove, %v, %v\n", key, hash)
 	previous = this.segmentFor(hash).remove(key, hash, nil)
 	return
@@ -343,8 +337,7 @@ func (this *ConcurrentMap) RemoveEntry(key interface{}, value interface{}) (ok b
 		return false, NilValueError
 	}
 
-	this.elemKey(key)
-	hash := hash2(hashKey(key, (*hashEnginer)(this.eng)))
+	hash := hash2(hashKey(key, this, true))
 	Printf("RemoveEntry, %v, %v\n", key, hash)
 	ok = this.segmentFor(hash).remove(key, hash, value) != nil
 	return
@@ -365,8 +358,7 @@ func (this *ConcurrentMap) CompareAndReplace(key interface{}, oldValue interface
 		return false, NilValueError
 	}
 
-	this.elemKey(key)
-	hash := hash2(hashKey(key, (*hashEnginer)(this.eng)))
+	hash := hash2(hashKey(key, this, true))
 	Printf("CompareAndReplace, %v, %v\n", key, hash)
 	ok = this.segmentFor(hash).replaceWithOld(key, hash, oldValue, newValue)
 	return
@@ -387,8 +379,7 @@ func (this *ConcurrentMap) Replace(key interface{}, value interface{}) (previous
 		return nil, NilValueError
 	}
 
-	this.elemKey(key)
-	hash := hash2(hashKey(key, (*hashEnginer)(this.eng)))
+	hash := hash2(hashKey(key, this, true))
 	Printf("Replace, %v, %v\n", key, hash)
 	previous = this.segmentFor(hash).replace(key, hash, value)
 	return
@@ -408,7 +399,7 @@ func (this *ConcurrentMap) Iterator() *MapIterator {
 	return NewMapIterator(this)
 }
 
-func (this *ConcurrentMap) elemKey(key interface{}) (ekey interface{}) {
+func (this *ConcurrentMap) parseKey(key interface{}) (ekey interface{}) {
 	this.engChecker.Do(func() {
 		var eng *hashEnginer
 
@@ -416,55 +407,56 @@ func (this *ConcurrentMap) elemKey(key interface{}) (ekey interface{}) {
 
 		if _, ok := val.(hasher); ok {
 			eng = hasherEng
-		}
-		switch v := val.(type) {
-		case bool:
-			_ = v
-			eng = boolEng
-		case int:
-			eng = intEng
-		case int8:
-			eng = int8Eng
-		case int16:
-			eng = int16Eng
-		case int32:
-			eng = int32Eng
-		case int64:
-			eng = int64Eng
-		case uint:
-			eng = uintEng
-		case uint8:
-			eng = uint8Eng
-		case uint16:
-			eng = uint16Eng
-		case uint32:
-			eng = uint32Eng
-		case uint64:
-			eng = uint64Eng
-		case uintptr:
-			eng = uintptrEng
-		case float32:
-			eng = float32Eng
-		case float64:
-			eng = float64Eng
-		case complex64:
-			eng = complex64Eng
-		case complex128:
-			eng = complex128Eng
-		case string:
-			eng = stringEng
-		default:
-			Printf("key = %v, other case\n", key)
-			//some types can be used as key, we can use equals to test
-			_ = val == val
+		} else {
+			switch v := val.(type) {
+			case bool:
+				_ = v
+				eng = boolEng
+			case int:
+				eng = intEng
+			case int8:
+				eng = int8Eng
+			case int16:
+				eng = int16Eng
+			case int32:
+				eng = int32Eng
+			case int64:
+				eng = int64Eng
+			case uint:
+				eng = uintEng
+			case uint8:
+				eng = uint8Eng
+			case uint16:
+				eng = uint16Eng
+			case uint32:
+				eng = uint32Eng
+			case uint64:
+				eng = uint64Eng
+			case uintptr:
+				eng = uintptrEng
+			case float32:
+				eng = float32Eng
+			case float64:
+				eng = float64Eng
+			case complex64:
+				eng = complex64Eng
+			case complex128:
+				eng = complex128Eng
+			case string:
+				eng = stringEng
+			default:
+				Printf("key = %v, other case\n", key)
+				//some types can be used as key, we can use equals to test
+				_ = val == val
 
-			rv := reflect.ValueOf(val)
-			ki := getKeyInfo(rv.Type())
+				rv := reflect.ValueOf(val)
+				ki := getKeyInfo(rv.Type())
 
-			putF := getPutFunc(ki)
-			eng = &hashEnginer{}
-			eng.putFunc = putF
-			eng.equalsFunc = defaultEqualsfunc
+				putF := getPutFunc(ki)
+				eng = &hashEnginer{}
+				eng.putFunc = putF
+				eng.equalsFunc = defaultEqualsfunc
+			}
 		}
 
 		this.eng = unsafe.Pointer(eng)

@@ -252,7 +252,7 @@ func TestInterface(t *testing.T) {
 
 type small struct {
 	Id   byte
-	Name byte
+	name byte
 }
 
 func TestSmallStruct(t *testing.T) {
@@ -929,6 +929,7 @@ func TestConcurrent(t *testing.T) {
 
 	rWg.Wait()
 	<-cLast
+	runtime.GC()
 }
 
 //below code are used in readme.txt

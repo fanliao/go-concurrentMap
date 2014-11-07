@@ -6,6 +6,7 @@ import (
 	"io"
 	"math/rand"
 	"reflect"
+	"sync/atomic"
 	"unsafe"
 )
 
@@ -40,15 +41,9 @@ var (
 )
 
 func init() {
-	defaultEqualsfunc = func(k1 interface{}, k2 interface{}) bool {
-		return k1 == k2
-	}
 	hasherEng = &hashEnginer{
 		putFunc: func(w io.Writer, k interface{}) {
 			w.Write(k.(hasher).bytes())
-		},
-		equalsFunc: func(k1 interface{}, k2 interface{}) bool {
-			return k1.(hasher).Equals(k2)
 		},
 	}
 	boolEng = &hashEnginer{
@@ -56,7 +51,6 @@ func init() {
 			k1 := k.(bool)
 			w.Write((*((*[1]byte)(unsafe.Pointer(&k1))))[:])
 		},
-		equalsFunc: defaultEqualsfunc,
 	}
 	intEng = &hashEnginer{
 		putFunc: func(w io.Writer, k interface{}) {
@@ -64,28 +58,24 @@ func init() {
 			w.Write((*((*[intSize]byte)(unsafe.Pointer(&k1))))[:])
 			Printf("intEng, k = %v, bytes = %v\n", k, (*((*[intSize]byte)(unsafe.Pointer(&k1))))[:])
 		},
-		equalsFunc: defaultEqualsfunc,
 	}
 	int8Eng = &hashEnginer{
 		putFunc: func(w io.Writer, k interface{}) {
 			k1 := k.(int8)
 			w.Write((*((*[1]byte)(unsafe.Pointer(&k1))))[:])
 		},
-		equalsFunc: defaultEqualsfunc,
 	}
 	int16Eng = &hashEnginer{
 		putFunc: func(w io.Writer, k interface{}) {
 			k1 := k.(int16)
 			w.Write((*((*[2]byte)(unsafe.Pointer(&k1))))[:])
 		},
-		equalsFunc: defaultEqualsfunc,
 	}
 	int32Eng = &hashEnginer{
 		putFunc: func(w io.Writer, k interface{}) {
 			k1 := k.(int32)
 			w.Write((*((*[4]byte)(unsafe.Pointer(&k1))))[:])
 		},
-		equalsFunc: defaultEqualsfunc,
 	}
 	int64Eng = &hashEnginer{
 		putFunc: func(w io.Writer, k interface{}) {
@@ -93,14 +83,12 @@ func init() {
 			w.Write((*((*[8]byte)(unsafe.Pointer(&k1))))[:])
 			Printf("int64Eng, k = %v, bytes = %v\n", k, (*((*[intSize]byte)(unsafe.Pointer(&k1))))[:])
 		},
-		equalsFunc: defaultEqualsfunc,
 	}
 	uintEng = &hashEnginer{
 		putFunc: func(w io.Writer, k interface{}) {
 			k1 := k.(uint)
 			w.Write((*((*[intSize]byte)(unsafe.Pointer(&k1))))[:])
 		},
-		equalsFunc: defaultEqualsfunc,
 	}
 	uint8Eng = &hashEnginer{
 		putFunc: func(w io.Writer, k interface{}) {
@@ -108,35 +96,30 @@ func init() {
 			w.Write((*((*[1]byte)(unsafe.Pointer(&k1))))[:])
 			Printf("uint8Eng, k = %v, bytes = %v\n", k, (*((*[intSize]byte)(unsafe.Pointer(&k1))))[:])
 		},
-		equalsFunc: defaultEqualsfunc,
 	}
 	uint16Eng = &hashEnginer{
 		putFunc: func(w io.Writer, k interface{}) {
 			k1 := k.(uint16)
 			w.Write((*((*[2]byte)(unsafe.Pointer(&k1))))[:])
 		},
-		equalsFunc: defaultEqualsfunc,
 	}
 	uint32Eng = &hashEnginer{
 		putFunc: func(w io.Writer, k interface{}) {
 			k1 := k.(uint32)
 			w.Write((*((*[4]byte)(unsafe.Pointer(&k1))))[:])
 		},
-		equalsFunc: defaultEqualsfunc,
 	}
 	uint64Eng = &hashEnginer{
 		putFunc: func(w io.Writer, k interface{}) {
 			k1 := k.(uint64)
 			w.Write((*((*[8]byte)(unsafe.Pointer(&k1))))[:])
 		},
-		equalsFunc: defaultEqualsfunc,
 	}
 	uintptrEng = &hashEnginer{
 		putFunc: func(w io.Writer, k interface{}) {
 			k1 := k.(uintptr)
 			w.Write((*((*[intSize]byte)(unsafe.Pointer(&k1))))[:])
 		},
-		equalsFunc: defaultEqualsfunc,
 	}
 	float32Eng = &hashEnginer{
 		putFunc: func(w io.Writer, k interface{}) {
@@ -147,7 +130,6 @@ func init() {
 			}
 			w.Write((*((*[4]byte)(unsafe.Pointer(&k1))))[:])
 		},
-		equalsFunc: defaultEqualsfunc,
 	}
 	float64Eng = &hashEnginer{
 		putFunc: func(w io.Writer, k interface{}) {
@@ -158,28 +140,24 @@ func init() {
 			}
 			w.Write((*((*[8]byte)(unsafe.Pointer(&k1))))[:])
 		},
-		equalsFunc: defaultEqualsfunc,
 	}
 	complex64Eng = &hashEnginer{
 		putFunc: func(w io.Writer, k interface{}) {
 			k1 := k.(complex64)
 			w.Write((*((*[8]byte)(unsafe.Pointer(&k1))))[:])
 		},
-		equalsFunc: defaultEqualsfunc,
 	}
 	complex128Eng = &hashEnginer{
 		putFunc: func(w io.Writer, k interface{}) {
 			k1 := k.(complex128)
 			w.Write((*((*[128]byte)(unsafe.Pointer(&k1))))[:])
 		},
-		equalsFunc: defaultEqualsfunc,
 	}
 	stringEng = &hashEnginer{
 		putFunc: func(w io.Writer, k interface{}) {
 			k1 := k.(string)
 			w.Write([]byte(k1))
 		},
-		equalsFunc: defaultEqualsfunc,
 	}
 	engM = map[reflect.Kind]*hashEnginer{
 		reflect.Bool:       boolEng,
@@ -202,20 +180,85 @@ func init() {
 	}
 }
 
-func hashKey(key interface{}, eng *hashEnginer) (hashCode uint32) {
+func hashKey(key interface{}, m *ConcurrentMap, isRead bool) (hashCode uint32) {
 	h := fnv.New32a()
 
-	//Nan != Nan, so use a rand number to generate hash code
-	if key != key {
-		if _, ok := key.(float32); ok {
-			key = rand.Float32()
-		} else if _, ok := key.(float64); ok {
-			key = rand.Float64()
+	switch v := key.(type) {
+	case bool:
+		h.Write((*((*[1]byte)(unsafe.Pointer(&v))))[:])
+		hashCode = h.Sum32()
+	case int:
+		h.Write((*((*[intSize]byte)(unsafe.Pointer(&v))))[:])
+		hashCode = h.Sum32()
+	case int8:
+		h.Write((*((*[1]byte)(unsafe.Pointer(&v))))[:])
+		hashCode = h.Sum32()
+	case int16:
+		h.Write((*((*[2]byte)(unsafe.Pointer(&v))))[:])
+		hashCode = h.Sum32()
+	case int32:
+		h.Write((*((*[4]byte)(unsafe.Pointer(&v))))[:])
+		hashCode = h.Sum32()
+	case int64:
+		h.Write((*((*[8]byte)(unsafe.Pointer(&v))))[:])
+		hashCode = h.Sum32()
+	case uint:
+		h.Write((*((*[intSize]byte)(unsafe.Pointer(&v))))[:])
+		hashCode = h.Sum32()
+	case uint8:
+		h.Write((*((*[1]byte)(unsafe.Pointer(&v))))[:])
+		hashCode = h.Sum32()
+	case uint16:
+		h.Write((*((*[2]byte)(unsafe.Pointer(&v))))[:])
+		hashCode = h.Sum32()
+	case uint32:
+		h.Write((*((*[4]byte)(unsafe.Pointer(&v))))[:])
+		hashCode = h.Sum32()
+	case uint64:
+		h.Write((*((*[8]byte)(unsafe.Pointer(&v))))[:])
+		hashCode = h.Sum32()
+	case uintptr:
+		h.Write((*((*[intSize]byte)(unsafe.Pointer(&v))))[:])
+		hashCode = h.Sum32()
+	case float32:
+		//Nan != Nan, so use a rand number to generate hash code
+		if v != v {
+			v = rand.Float32()
+		}
+		h.Write((*((*[4]byte)(unsafe.Pointer(&v))))[:])
+		hashCode = h.Sum32()
+	case float64:
+		//Nan != Nan, so use a rand number to generate hash code
+		if v != v {
+			v = rand.Float64()
+		}
+		h.Write((*((*[8]byte)(unsafe.Pointer(&v))))[:])
+		hashCode = h.Sum32()
+	case complex64:
+		h.Write((*((*[8]byte)(unsafe.Pointer(&v))))[:])
+		hashCode = h.Sum32()
+	case complex128:
+		h.Write((*((*[128]byte)(unsafe.Pointer(&v))))[:])
+		hashCode = h.Sum32()
+	case string:
+		h.Write([]byte(v))
+		hashCode = h.Sum32()
+	default:
+		//if key is not simple type
+		if her, ok := key.(hasher); ok {
+			h.Write(her.bytes())
+		} else {
+			m.parseKey(key)
+			if isRead {
+				eng := (*hashEnginer)(atomic.LoadPointer(&m.eng))
+				eng.putFunc(h, key)
+			} else {
+				eng := (*hashEnginer)(m.eng)
+				eng.putFunc(h, key)
+			}
+			hashCode = h.Sum32()
 		}
 	}
-
-	eng.putFunc(h, key)
-	hashCode = h.Sum32()
 	return
 }
 
@@ -439,7 +482,7 @@ func getKeyInfo(t reflect.Type) (ki *keyInfo) {
 			ki.fields = make([]*keyInfo, 0, t.NumField())
 			for i := 0; i < t.NumField(); i++ {
 				f := t.Field(i)
-				//skip unexported fieldgetPutFunc,
+				//skip unexported field,
 				if len(f.PkgPath) > 0 {
 					continue
 				}
