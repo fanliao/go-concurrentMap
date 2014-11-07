@@ -22,7 +22,7 @@ func init() {
 	MAXPROCS := runtime.NumCPU()
 	runtime.GOMAXPROCS(MAXPROCS)
 	listN = MAXPROCS + 1
-	number = 100000
+	number = 10000
 	fmt.Println("MAXPROCS is ", MAXPROCS, ", listN is", listN, ", n is ", number, "\n")
 
 	list = make([][]interface{}, listN, listN)

@@ -1,6 +1,7 @@
 package concurrent
 
 import (
+	"fmt"
 	"hash/fnv"
 	"io"
 	"math/rand"
@@ -16,6 +17,29 @@ const (
 
 var (
 	hasherT           = reflect.TypeOf((*hasher)(nil)).Elem()
+	defaultEqualsfunc func(k1 interface{}, k2 interface{}) bool
+	hasherEng         *hashEnginer
+	boolEng           *hashEnginer
+	intEng            *hashEnginer
+	int8Eng           *hashEnginer
+	int16Eng          *hashEnginer
+	int32Eng          *hashEnginer
+	int64Eng          *hashEnginer
+	uintEng           *hashEnginer
+	uint8Eng          *hashEnginer
+	uint16Eng         *hashEnginer
+	uint32Eng         *hashEnginer
+	uint64Eng         *hashEnginer
+	uintptrEng        *hashEnginer
+	float32Eng        *hashEnginer
+	float64Eng        *hashEnginer
+	complex64Eng      *hashEnginer
+	complex128Eng     *hashEnginer
+	stringEng         *hashEnginer
+	engM              map[reflect.Kind]*hashEnginer
+)
+
+func init() {
 	defaultEqualsfunc = func(k1 interface{}, k2 interface{}) bool {
 		return k1 == k2
 	}
@@ -38,6 +62,7 @@ var (
 		putFunc: func(w io.Writer, k interface{}) {
 			k1 := k.(int)
 			w.Write((*((*[intSize]byte)(unsafe.Pointer(&k1))))[:])
+			Printf("intEng, k = %v, bytes = %v\n", k, (*((*[intSize]byte)(unsafe.Pointer(&k1))))[:])
 		},
 		equalsFunc: defaultEqualsfunc,
 	}
@@ -66,20 +91,22 @@ var (
 		putFunc: func(w io.Writer, k interface{}) {
 			k1 := k.(int64)
 			w.Write((*((*[8]byte)(unsafe.Pointer(&k1))))[:])
+			Printf("int64Eng, k = %v, bytes = %v\n", k, (*((*[intSize]byte)(unsafe.Pointer(&k1))))[:])
 		},
 		equalsFunc: defaultEqualsfunc,
 	}
 	uintEng = &hashEnginer{
 		putFunc: func(w io.Writer, k interface{}) {
 			k1 := k.(uint)
-			w.Write((*((*[1]byte)(unsafe.Pointer(&k1))))[:])
+			w.Write((*((*[intSize]byte)(unsafe.Pointer(&k1))))[:])
 		},
 		equalsFunc: defaultEqualsfunc,
 	}
 	uint8Eng = &hashEnginer{
 		putFunc: func(w io.Writer, k interface{}) {
 			k1 := k.(uint8)
-			w.Write((*((*[intSize]byte)(unsafe.Pointer(&k1))))[:])
+			w.Write((*((*[1]byte)(unsafe.Pointer(&k1))))[:])
+			Printf("uint8Eng, k = %v, bytes = %v\n", k, (*((*[intSize]byte)(unsafe.Pointer(&k1))))[:])
 		},
 		equalsFunc: defaultEqualsfunc,
 	}
@@ -173,14 +200,18 @@ var (
 		reflect.Complex128: complex128Eng,
 		reflect.String:     stringEng,
 	}
-)
+}
 
 func hashKey(key interface{}, eng *hashEnginer) (hashCode uint32) {
 	h := fnv.New32a()
 
 	//Nan != Nan, so use a rand number to generate hash code
 	if key != key {
-		key = rand.Float32()
+		if _, ok := key.(float32); ok {
+			key = rand.Float32()
+		} else if _, ok := key.(float64); ok {
+			key = rand.Float64()
+		}
 	}
 
 	eng.putFunc(h, key)
@@ -395,6 +426,7 @@ func getKeyInfo(t reflect.Type) (ki *keyInfo) {
 	ki.kind = t.Kind()
 
 	if _, ok := engM[ki.kind]; !ok {
+		Printf("t is %v, %v\n", t.Kind(), t)
 		//some types can be used as key, we can use equals to test
 		switch ki.kind {
 		case reflect.Slice, reflect.Func, reflect.Map, reflect.Ptr:
@@ -404,12 +436,18 @@ func getKeyInfo(t reflect.Type) (ki *keyInfo) {
 		case reflect.Chan:
 			panic("do not support Chan as key")
 		case reflect.Struct:
-			ki.fields = make([]*keyInfo, t.NumField())
+			ki.fields = make([]*keyInfo, 0, t.NumField())
 			for i := 0; i < t.NumField(); i++ {
 				f := t.Field(i)
-				ki.fields[i] = getKeyInfo(f.Type)
-				ki.fields[i].index = i
+				//skip unexported fieldgetPutFunc,
+				if len(f.PkgPath) > 0 {
+					continue
+				}
+				fi := getKeyInfo(f.Type)
+				fi.index = i
+				ki.fields = append(ki.fields, fi)
 			}
+			Printf("t is %v, %v\n", t.Kind(), t)
 		case reflect.Array:
 			ki.elementInfo = getKeyInfo(t.Elem())
 			ki.index = t.Len()
@@ -425,18 +463,22 @@ func getPutFunc(ki *keyInfo) func(w io.Writer, k interface{}) {
 		return hasherEng.putFunc
 	}
 
+	//Printf("getPutFunc, ki = %v\n", ki)
 	if eng, ok := engM[ki.kind]; ok {
 		return eng.putFunc
 	} else {
 		if ki.kind == reflect.Struct {
+			//Printf("getPutFunc, ki = %v, other case\n", ki)
 			putFunc := func(w io.Writer, k interface{}) {
 				rv := reflect.ValueOf(k)
 				for _, fieldInfo := range ki.fields {
 					//深度遍历每个field，并将其[]byte写入hash函数
 					putF := getPutFunc(fieldInfo)
-					putF(w, rv.Field(fieldInfo.index))
+					Printf("getPutFunc, ki = %v, fieldInfo = %v, value = %v\n", ki, fieldInfo, rv.Field(fieldInfo.index).Interface())
+					putF(w, rv.Field(fieldInfo.index).Interface())
 				}
 			}
+			Printf("getPutFunc, ki=%v, putFunc = %v, other case\n", ki, putFunc)
 			return putFunc
 		} else if ki.kind == reflect.Array {
 			putFunc := func(w io.Writer, k interface{}) {
@@ -449,6 +491,23 @@ func getPutFunc(ki *keyInfo) func(w io.Writer, k interface{}) {
 			}
 			return putFunc
 		}
+		Printf("getPutFunc, return nil")
 	}
 	return nil
+}
+
+func Printf(format string, a ...interface{}) (n int, err error) {
+	if Debug {
+		return fmt.Printf(format, a...)
+	} else {
+		return 0, nil
+	}
+}
+
+func Println(a ...interface{}) (n int, err error) {
+	if Debug {
+		return fmt.Println(a...)
+	} else {
+		return 0, nil
+	}
 }

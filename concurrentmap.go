@@ -53,6 +53,7 @@ const (
 )
 
 var (
+	Debug           = false
 	NilKeyError     = errors.New("Nil key error")
 	NilValueError   = errors.New("Nil value error")
 	IllegalArgError = errors.New("IllegalArgumentException")
@@ -205,11 +206,12 @@ func (this *ConcurrentMap) Get(key interface{}) (value interface{}, err error) {
 	if isNil(key) {
 		return nil, NilKeyError
 	}
-	if atomic.LoadPointer(&this.kind) == nil {
-		return nil, nil
-	}
+	//if atomic.LoadPointer(&this.kind) == nil {
+	//	return nil, nil
+	//}
 	this.elemKey(key)
 	hash := hash2(hashKey(key, (*hashEnginer)(this.eng)))
+	Printf("Get, %v, %v\n", key, hash)
 	value = this.segmentFor(hash).get(key, hash)
 	return
 }
@@ -231,6 +233,7 @@ func (this *ConcurrentMap) ContainsKey(key interface{}) (found bool, err error) 
 
 	this.elemKey(key)
 	hash := hash2(hashKey(key, (*hashEnginer)(this.eng)))
+	Printf("ContainsKey, %v, %v\n", key, hash)
 	found = this.segmentFor(hash).containsKey(key, hash)
 	return
 }
@@ -257,7 +260,9 @@ func (this *ConcurrentMap) Put(key interface{}, value interface{}) (previous int
 	}
 
 	this.elemKey(key)
+	Printf("this.eng is %v\n", (*hashEnginer)(this.eng).putFunc)
 	hash := hash2(hashKey(key, (*hashEnginer)(this.eng)))
+	Printf("Put, %v, %v\n", key, hash)
 	previous = this.segmentFor(hash).put(key, hash, value, false)
 	return
 }
@@ -283,6 +288,7 @@ func (this *ConcurrentMap) PutIfAbsent(key interface{}, value interface{}) (prev
 
 	this.elemKey(key)
 	hash := hash2(hashKey(key, (*hashEnginer)(this.eng)))
+	Printf("PutIfAbsent, %v, %v\n", key, hash)
 	previous = this.segmentFor(hash).put(key, hash, value, true)
 	return
 }
@@ -318,6 +324,7 @@ func (this *ConcurrentMap) Remove(key interface{}) (previous interface{}, err er
 
 	this.elemKey(key)
 	hash := hash2(hashKey(key, (*hashEnginer)(this.eng)))
+	Printf("Remove, %v, %v\n", key, hash)
 	previous = this.segmentFor(hash).remove(key, hash, nil)
 	return
 }
@@ -338,6 +345,7 @@ func (this *ConcurrentMap) RemoveEntry(key interface{}, value interface{}) (ok b
 
 	this.elemKey(key)
 	hash := hash2(hashKey(key, (*hashEnginer)(this.eng)))
+	Printf("RemoveEntry, %v, %v\n", key, hash)
 	ok = this.segmentFor(hash).remove(key, hash, value) != nil
 	return
 }
@@ -359,6 +367,7 @@ func (this *ConcurrentMap) CompareAndReplace(key interface{}, oldValue interface
 
 	this.elemKey(key)
 	hash := hash2(hashKey(key, (*hashEnginer)(this.eng)))
+	Printf("CompareAndReplace, %v, %v\n", key, hash)
 	ok = this.segmentFor(hash).replaceWithOld(key, hash, oldValue, newValue)
 	return
 }
@@ -380,6 +389,7 @@ func (this *ConcurrentMap) Replace(key interface{}, value interface{}) (previous
 
 	this.elemKey(key)
 	hash := hash2(hashKey(key, (*hashEnginer)(this.eng)))
+	Printf("Replace, %v, %v\n", key, hash)
 	previous = this.segmentFor(hash).replace(key, hash, value)
 	return
 }
@@ -444,6 +454,7 @@ func (this *ConcurrentMap) elemKey(key interface{}) (ekey interface{}) {
 		case string:
 			eng = stringEng
 		default:
+			Printf("key = %v, other case\n", key)
 			//some types can be used as key, we can use equals to test
 			_ = val == val
 
@@ -451,13 +462,14 @@ func (this *ConcurrentMap) elemKey(key interface{}) (ekey interface{}) {
 			ki := getKeyInfo(rv.Type())
 
 			putF := getPutFunc(ki)
-			eng := &hashEnginer{}
+			eng = &hashEnginer{}
 			eng.putFunc = putF
 			eng.equalsFunc = defaultEqualsfunc
 		}
 
 		this.eng = unsafe.Pointer(eng)
 
+		Printf("key = %v, eng=%v, %v\n", key, this.eng, eng)
 	})
 	return
 }
@@ -468,7 +480,7 @@ func (this *ConcurrentMap) newSegment(initialCapacity int, lf float32) (s *Segme
 	table := make([]unsafe.Pointer, initialCapacity)
 	s.setTable(table)
 	s.lock = new(sync.Mutex)
-	s.eng = this.eng
+	s.m = this
 	return
 }
 
@@ -513,6 +525,7 @@ func newConcurrentMap3(initialCapacity int,
 	for i := 0; i < len(m.segments); i++ {
 		m.segments[i] = m.newSegment(cap, loadFactor)
 	}
+	m.engChecker = new(Once)
 	return
 }
 
@@ -613,7 +626,7 @@ func (this *Entry) storeValue(v *interface{}) {
 }
 
 type Segment struct {
-	eng unsafe.Pointer
+	m *ConcurrentMap //point to concurrentMap.eng, so it is **hashEnginer
 	/**
 	 * The number of elements in this segment's region.
 	 * Must use atomic package's LoadInt32 and StoreInt32 functions to read/write this field
@@ -655,7 +668,7 @@ type Segment struct {
 }
 
 func (this *Segment) enginer() *hashEnginer {
-	return (*hashEnginer)(this.eng)
+	return (*hashEnginer)(atomic.LoadPointer(&this.m.eng))
 }
 
 func (this *Segment) rehash() {
@@ -786,7 +799,7 @@ func (this *Segment) get(key interface{}, hash uint32) interface{} {
 	if atomic.LoadInt32(&this.count) != 0 { // atomic-read
 		e := this.getFirst(hash)
 		for e != nil {
-			if e.hash == hash && this.enginer().equalsFunc(e.key, key) {
+			if e.hash == hash && e.key == key {
 				v := e.Value()
 				if v != nil {
 					return v
@@ -803,7 +816,7 @@ func (this *Segment) containsKey(key interface{}, hash uint32) bool {
 	if atomic.LoadInt32(&this.count) != 0 { // read-volatile
 		e := this.getFirst(hash)
 		for e != nil {
-			if e.hash == hash && this.enginer().equalsFunc(e.key, key) {
+			if e.hash == hash && e.key == key {
 				return true
 			}
 			e = e.next
@@ -817,7 +830,7 @@ func (this *Segment) replaceWithOld(key interface{}, hash uint32, oldValue inter
 	defer this.lock.Unlock()
 
 	e := this.getFirst(hash)
-	for e != nil && (e.hash != hash || !this.enginer().equalsFunc(e.key, key)) { //key != e.key) {
+	for e != nil && (e.hash != hash || key != e.key) {
 		e = e.next
 	}
 
@@ -833,7 +846,7 @@ func (this *Segment) replace(key interface{}, hash uint32, newValue interface{})
 	this.lock.Lock()
 	defer this.lock.Unlock()
 	e := this.getFirst(hash)
-	for e != nil && (e.hash != hash || !this.enginer().equalsFunc(e.key, key)) { //key != e.key) {
+	for e != nil && (e.hash != hash || key != e.key) {
 		e = e.next
 	}
 
@@ -867,7 +880,8 @@ func (this *Segment) put(key interface{}, hash uint32, value interface{}, onlyIf
 	index := hash & uint32(len(tab)-1)
 	first := (*Entry)(tab[index])
 	e := first
-	for e != nil && (e.hash != hash || !this.enginer().equalsFunc(e.key, key)) { //key != e.key) {
+
+	for e != nil && (e.hash != hash || key != e.key) {
 		e = e.next
 	}
 
@@ -898,7 +912,7 @@ func (this *Segment) remove(key interface{}, hash uint32, value interface{}) (ol
 	first := (*Entry)(tab[index])
 	e := first
 
-	for e != nil && (e.hash != hash || !this.enginer().equalsFunc(e.key, key)) { //key != e.key) {
+	for e != nil && (e.hash != hash || key != e.key) {
 		e = e.next
 	}
 
