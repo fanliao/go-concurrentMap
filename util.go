@@ -56,7 +56,6 @@ func init() {
 		putFunc: func(w io.Writer, k interface{}) {
 			k1 := k.(int)
 			w.Write((*((*[intSize]byte)(unsafe.Pointer(&k1))))[:])
-			Printf("intEng, k = %v, bytes = %v\n", k, (*((*[intSize]byte)(unsafe.Pointer(&k1))))[:])
 		},
 	}
 	int8Eng = &hashEnginer{
@@ -81,7 +80,6 @@ func init() {
 		putFunc: func(w io.Writer, k interface{}) {
 			k1 := k.(int64)
 			w.Write((*((*[8]byte)(unsafe.Pointer(&k1))))[:])
-			Printf("int64Eng, k = %v, bytes = %v\n", k, (*((*[intSize]byte)(unsafe.Pointer(&k1))))[:])
 		},
 	}
 	uintEng = &hashEnginer{
@@ -94,7 +92,6 @@ func init() {
 		putFunc: func(w io.Writer, k interface{}) {
 			k1 := k.(uint8)
 			w.Write((*((*[1]byte)(unsafe.Pointer(&k1))))[:])
-			Printf("uint8Eng, k = %v, bytes = %v\n", k, (*((*[intSize]byte)(unsafe.Pointer(&k1))))[:])
 		},
 	}
 	uint16Eng = &hashEnginer{
@@ -450,16 +447,60 @@ type keyInfo struct {
 	/*-- kind of key type --*/
 	kind reflect.Kind
 	/*-- index of field if it is a field of struct --*/
-	index int
+	index []int
 	/*-- field informations of struct --*/
 	fields []*keyInfo
 	/*-- element information of array --*/
 	elementInfo *keyInfo
-	number      int
+	size        int
 }
 
 //获取t对应的类型信息，不支持slice, function, map, pointer, interface, channel
 func getKeyInfo(t reflect.Type) (ki *keyInfo) {
+	//ki = &keyInfo{}
+	////判断是否实现了hasher接口
+	//if t.Implements(hasherT) {
+	//	ki.isHasher = true
+	//	return
+	//}
+	//ki.kind = t.Kind()
+
+	//if _, ok := engM[ki.kind]; !ok {
+	//	Printf("t is %v, %v\n", t.Kind(), t)
+	//	//some types can be used as key, we can use equals to test
+	//	switch ki.kind {
+	//	case reflect.Slice, reflect.Func, reflect.Map, reflect.Ptr:
+	//		panic("do not support pointer as key")
+	//	case reflect.Interface:
+	//		panic("do not support Interface as key")
+	//	case reflect.Chan:
+	//		panic("do not support Chan as key")
+	//	case reflect.Struct:
+	//		ki.fields = make([]*keyInfo, 0, t.NumField())
+	//		for i := 0; i < t.NumField(); i++ {
+	//			f := t.Field(i)
+	//			//skip unexported field,
+	//			if len(f.PkgPath) > 0 {
+	//				continue
+	//			}
+	//			fi := getKeyInfo(f.Type)
+	//			fi.index = i
+	//			ki.fields = append(ki.fields, fi)
+	//		}
+	//		Printf("t is %v, %v\n", t.Kind(), t)
+	//	case reflect.Array:
+	//		ki.elementInfo = getKeyInfo(t.Elem())
+	//		ki.size = t.Len()
+	//	}
+	//}
+
+	//return
+	return getKeyInfoByParent(t, nil, make([]int, 0, 0))
+}
+
+//获取t对应的类型信息，不支持slice, function, map, pointer, interface, channel
+//如果parentIdx的长度>0，则表示t是strut中的字段的类型信息, t为字段对应的类型
+func getKeyInfoByParent(t reflect.Type, parent *keyInfo, parentIdx []int) (ki *keyInfo) {
 	ki = &keyInfo{}
 	//判断是否实现了hasher接口
 	if t.Implements(hasherT) {
@@ -468,8 +509,10 @@ func getKeyInfo(t reflect.Type) (ki *keyInfo) {
 	}
 	ki.kind = t.Kind()
 
-	if _, ok := engM[ki.kind]; !ok {
-		Printf("t is %v, %v\n", t.Kind(), t)
+	if _, ok := engM[ki.kind]; ok {
+		//简单类型，不需要再分解元素类型的信息
+		ki.index = parentIdx
+	} else {
 		//some types can be used as key, we can use equals to test
 		switch ki.kind {
 		case reflect.Slice, reflect.Func, reflect.Map, reflect.Ptr:
@@ -479,21 +522,29 @@ func getKeyInfo(t reflect.Type) (ki *keyInfo) {
 		case reflect.Chan:
 			panic("do not support Chan as key")
 		case reflect.Struct:
-			ki.fields = make([]*keyInfo, 0, t.NumField())
+			if parent == nil {
+				//parent==nil表示t不是一个嵌套的struct，所以这里需要初始化fields
+				parent = ki
+				ki.fields = make([]*keyInfo, 0, t.NumField())
+			}
 			for i := 0; i < t.NumField(); i++ {
 				f := t.Field(i)
 				//skip unexported field,
 				if len(f.PkgPath) > 0 {
 					continue
 				}
-				fi := getKeyInfo(f.Type)
-				fi.index = i
-				ki.fields = append(ki.fields, fi)
+
+				idx := make([]int, len(parentIdx), len(parentIdx)+1)
+				copy(idx, parentIdx)
+				idx = append(idx, i)
+				fi := getKeyInfoByParent(f.Type, parent, idx)
+				//fi.index = i
+				parent.fields = append(ki.fields, fi)
 			}
-			Printf("t is %v, %v\n", t.Kind(), t)
 		case reflect.Array:
 			ki.elementInfo = getKeyInfo(t.Elem())
-			ki.index = t.Len()
+			ki.size = t.Len()
+			ki.index = parentIdx
 		}
 	}
 
@@ -517,19 +568,20 @@ func getPutFunc(ki *keyInfo) func(w io.Writer, k interface{}) {
 				for _, fieldInfo := range ki.fields {
 					//深度遍历每个field，并将其[]byte写入hash函数
 					putF := getPutFunc(fieldInfo)
-					Printf("getPutFunc, ki = %v, fieldInfo = %v, value = %v\n", ki, fieldInfo, rv.Field(fieldInfo.index).Interface())
-					putF(w, rv.Field(fieldInfo.index).Interface())
+					//Printf("getPutFunc, ki = %#v, fieldInfo = %#v, %#v\n", ki, fieldInfo, rv.Interface())
+					//Printf("getPutFunc, value = %v\n", rv.FieldByIndex(fieldInfo.index).Interface())
+					putF(w, rv.FieldByIndex(fieldInfo.index).Interface())
 				}
 			}
-			Printf("getPutFunc, ki=%v, putFunc = %v, other case\n", ki, putFunc)
+			//Printf("getPutFunc, ki=%v, putFunc = %v, other case\n", ki, putFunc)
 			return putFunc
 		} else if ki.kind == reflect.Array {
 			putFunc := func(w io.Writer, k interface{}) {
 				rv := reflect.ValueOf(k)
 				putF := getPutFunc(ki.elementInfo)
-				for i := 0; i < ki.number; i++ {
+				for i := 0; i < ki.size; i++ {
 					//遍历数组元素，并将其[]byte写入hash函数
-					putF(w, rv.Index(i))
+					putF(w, rv.Index(i).Interface())
 				}
 			}
 			return putFunc

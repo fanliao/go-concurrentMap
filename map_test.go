@@ -273,6 +273,30 @@ func TestSmallStruct(t *testing.T) {
 	}
 }
 
+type compositeStruct struct {
+	F1 string
+	f2 int
+	small
+}
+
+func TestCompositeStruct(t *testing.T) {
+	a, b, c, d := compositeStruct{"1", 1, small{1, 1}}, compositeStruct{"2", 2, small{2, 2}}, compositeStruct{"3", 3, small{3, 3}}, compositeStruct{"4", 4, small{4, 4}}
+	testConcurrentMap(t, map[interface{}]interface{}{
+		a: 10,
+		b: 20,
+		c: 30,
+		d: 40,
+	})
+
+	//test using the interface object and original value as key, two value should return the same hash code
+	cm := NewConcurrentMap()
+	cm.Put(a, 10)
+	e := compositeStruct{"1", 1, small{1, 1}}
+	if v, err := cm.Get(e); v != 10 || err != nil {
+		t.Errorf("Get %v, return %v, %v, want %v", &e, v, err, 10)
+	}
+}
+
 func TestUnableHash(t *testing.T) {
 	testHash := func(k interface{}) (err error) {
 		defer func() {
