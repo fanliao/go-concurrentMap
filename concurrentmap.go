@@ -56,17 +56,17 @@ var (
 	Debug           = false
 	NilKeyError     = errors.New("Nil key error")
 	NilValueError   = errors.New("Nil value error")
+	NonSupportKey   = errors.New("Non support for pointer, interface, channel, slice, map and function ")
 	IllegalArgError = errors.New("IllegalArgumentException")
 )
 
-type hasher interface {
-	bytes() []byte
+type Hasher interface {
+	HashBytes() []byte
 	Equals(v2 interface{}) bool
 }
 
 type hashEnginer struct {
-	putFunc    func(w io.Writer, v interface{})
-	equalsFunc func(v1 interface{}, v2 interface{}) bool
+	putFunc func(w io.Writer, v interface{})
 }
 
 //segments is read-only, don't need synchronized
@@ -209,9 +209,12 @@ func (this *ConcurrentMap) Get(key interface{}) (value interface{}, err error) {
 	//if atomic.LoadPointer(&this.kind) == nil {
 	//	return nil, nil
 	//}
-	hash := hash2(hashKey(key, this, false))
-	Printf("Get, %v, %v\n", key, hash)
-	value = this.segmentFor(hash).get(key, hash)
+	if hash, e := hashKey(key, this, false); e != nil {
+		err = e
+	} else {
+		Printf("Get, %v, %v\n", key, hash)
+		value = this.segmentFor(hash).get(key, hash)
+	}
 	return
 }
 
@@ -230,9 +233,15 @@ func (this *ConcurrentMap) ContainsKey(key interface{}) (found bool, err error) 
 		return false, nil
 	}
 
-	hash := hash2(hashKey(key, this, false))
-	Printf("ContainsKey, %v, %v\n", key, hash)
-	found = this.segmentFor(hash).containsKey(key, hash)
+	if hash, e := hashKey(key, this, false); e != nil {
+		err = e
+	} else {
+		Printf("ContainsKey, %v, %v\n", key, hash)
+		found = this.segmentFor(hash).containsKey(key, hash)
+	}
+	//hash := hash2(hashKey(key, this, false))
+	//Printf("ContainsKey, %v, %v\n", key, hash)
+	//found = this.segmentFor(hash).containsKey(key, hash)
 	return
 }
 
@@ -257,9 +266,15 @@ func (this *ConcurrentMap) Put(key interface{}, value interface{}) (previous int
 		return nil, NilValueError
 	}
 
-	hash := hash2(hashKey(key, this, true))
-	Printf("Put, %v, %v\n", key, hash)
-	previous = this.segmentFor(hash).put(key, hash, value, false)
+	if hash, e := hashKey(key, this, false); e != nil {
+		err = e
+	} else {
+		Printf("Put, %v, %v\n", key, hash)
+		previous = this.segmentFor(hash).put(key, hash, value, false)
+	}
+	//hash := hash2(hashKey(key, this, true))
+	//Printf("Put, %v, %v\n", key, hash)
+	//previous = this.segmentFor(hash).put(key, hash, value, false)
 	return
 }
 
@@ -282,9 +297,15 @@ func (this *ConcurrentMap) PutIfAbsent(key interface{}, value interface{}) (prev
 		return nil, NilValueError
 	}
 
-	hash := hash2(hashKey(key, this, true))
-	Printf("PutIfAbsent, %v, %v\n", key, hash)
-	previous = this.segmentFor(hash).put(key, hash, value, true)
+	if hash, e := hashKey(key, this, false); e != nil {
+		err = e
+	} else {
+		Printf("PutIfAbsent, %v, %v\n", key, hash)
+		previous = this.segmentFor(hash).put(key, hash, value, true)
+	}
+	//hash := hash2(hashKey(key, this, true))
+	//Printf("PutIfAbsent, %v, %v\n", key, hash)
+	//previous = this.segmentFor(hash).put(key, hash, value, true)
 	return
 }
 
@@ -317,9 +338,15 @@ func (this *ConcurrentMap) Remove(key interface{}) (previous interface{}, err er
 		return nil, NilKeyError
 	}
 
-	hash := hash2(hashKey(key, this, true))
-	Printf("Remove, %v, %v\n", key, hash)
-	previous = this.segmentFor(hash).remove(key, hash, nil)
+	if hash, e := hashKey(key, this, false); e != nil {
+		err = e
+	} else {
+		Printf("Remove, %v, %v\n", key, hash)
+		previous = this.segmentFor(hash).remove(key, hash, nil)
+	}
+	//hash := hash2(hashKey(key, this, true))
+	//Printf("Remove, %v, %v\n", key, hash)
+	//previous = this.segmentFor(hash).remove(key, hash, nil)
 	return
 }
 
@@ -337,9 +364,15 @@ func (this *ConcurrentMap) RemoveEntry(key interface{}, value interface{}) (ok b
 		return false, NilValueError
 	}
 
-	hash := hash2(hashKey(key, this, true))
-	Printf("RemoveEntry, %v, %v\n", key, hash)
-	ok = this.segmentFor(hash).remove(key, hash, value) != nil
+	if hash, e := hashKey(key, this, false); e != nil {
+		err = e
+	} else {
+		Printf("RemoveEntry, %v, %v\n", key, hash)
+		ok = this.segmentFor(hash).remove(key, hash, value) != nil
+	}
+	//hash := hash2(hashKey(key, this, true))
+	//Printf("RemoveEntry, %v, %v\n", key, hash)
+	//ok = this.segmentFor(hash).remove(key, hash, value) != nil
 	return
 }
 
@@ -358,9 +391,15 @@ func (this *ConcurrentMap) CompareAndReplace(key interface{}, oldValue interface
 		return false, NilValueError
 	}
 
-	hash := hash2(hashKey(key, this, true))
-	Printf("CompareAndReplace, %v, %v\n", key, hash)
-	ok = this.segmentFor(hash).replaceWithOld(key, hash, oldValue, newValue)
+	if hash, e := hashKey(key, this, false); e != nil {
+		err = e
+	} else {
+		Printf("CompareAndReplace, %v, %v\n", key, hash)
+		ok = this.segmentFor(hash).compareAndReplace(key, hash, oldValue, newValue)
+	}
+	//hash := hash2(hashKey(key, this, true))
+	//Printf("CompareAndReplace, %v, %v\n", key, hash)
+	//ok = this.segmentFor(hash).replaceWithOld(key, hash, oldValue, newValue)
 	return
 }
 
@@ -379,9 +418,15 @@ func (this *ConcurrentMap) Replace(key interface{}, value interface{}) (previous
 		return nil, NilValueError
 	}
 
-	hash := hash2(hashKey(key, this, true))
-	Printf("Replace, %v, %v\n", key, hash)
-	previous = this.segmentFor(hash).replace(key, hash, value)
+	if hash, e := hashKey(key, this, false); e != nil {
+		err = e
+	} else {
+		Printf("Replace, %v, %v\n", key, hash)
+		previous = this.segmentFor(hash).replace(key, hash, value)
+	}
+	//hash := hash2(hashKey(key, this, true))
+	//Printf("Replace, %v, %v\n", key, hash)
+	//previous = this.segmentFor(hash).replace(key, hash, value)
 	return
 }
 
@@ -399,13 +444,13 @@ func (this *ConcurrentMap) Iterator() *MapIterator {
 	return NewMapIterator(this)
 }
 
-func (this *ConcurrentMap) parseKey(key interface{}) (ekey interface{}) {
+func (this *ConcurrentMap) parseKey(key interface{}) (err error) {
 	this.engChecker.Do(func() {
 		var eng *hashEnginer
 
 		val := key
 
-		if _, ok := val.(hasher); ok {
+		if _, ok := val.(Hasher); ok {
 			eng = hasherEng
 		} else {
 			switch v := val.(type) {
@@ -447,15 +492,17 @@ func (this *ConcurrentMap) parseKey(key interface{}) (ekey interface{}) {
 			default:
 				Printf("key = %v, other case\n", key)
 				//some types can be used as key, we can use equals to test
-				_ = val == val
+				//_ = val == val
 
 				rv := reflect.ValueOf(val)
-				ki := getKeyInfo(rv.Type())
-
-				putF := getPutFunc(ki)
-				eng = &hashEnginer{}
-				eng.putFunc = putF
-				eng.equalsFunc = defaultEqualsfunc
+				if ki, e := getKeyInfo(rv.Type()); e != nil {
+					err = e
+					return
+				} else {
+					putF := getPutFunc(ki)
+					eng = &hashEnginer{}
+					eng.putFunc = putF
+				}
 			}
 		}
 
@@ -817,7 +864,7 @@ func (this *Segment) containsKey(key interface{}, hash uint32) bool {
 	return false
 }
 
-func (this *Segment) replaceWithOld(key interface{}, hash uint32, oldValue interface{}, newValue interface{}) bool {
+func (this *Segment) compareAndReplace(key interface{}, hash uint32, oldValue interface{}, newValue interface{}) bool {
 	this.lock.Lock()
 	defer this.lock.Unlock()
 

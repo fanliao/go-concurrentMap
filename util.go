@@ -17,7 +17,7 @@ const (
 )
 
 var (
-	hasherT           = reflect.TypeOf((*hasher)(nil)).Elem()
+	hasherT           = reflect.TypeOf((*Hasher)(nil)).Elem()
 	defaultEqualsfunc func(k1 interface{}, k2 interface{}) bool
 	hasherEng         *hashEnginer
 	boolEng           *hashEnginer
@@ -43,7 +43,7 @@ var (
 func init() {
 	hasherEng = &hashEnginer{
 		putFunc: func(w io.Writer, k interface{}) {
-			w.Write(k.(hasher).bytes())
+			w.Write(k.(Hasher).HashBytes())
 		},
 	}
 	boolEng = &hashEnginer{
@@ -177,7 +177,7 @@ func init() {
 	}
 }
 
-func hashKey(key interface{}, m *ConcurrentMap, isRead bool) (hashCode uint32) {
+func hashKey(key interface{}, m *ConcurrentMap, isRead bool) (hashCode uint32, err error) {
 	h := fnv.New32a()
 
 	switch v := key.(type) {
@@ -242,10 +242,12 @@ func hashKey(key interface{}, m *ConcurrentMap, isRead bool) (hashCode uint32) {
 		hashCode = h.Sum32()
 	default:
 		//if key is not simple type
-		if her, ok := key.(hasher); ok {
-			h.Write(her.bytes())
+		if her, ok := key.(Hasher); ok {
+			h.Write(her.HashBytes())
 		} else {
-			m.parseKey(key)
+			if err = m.parseKey(key); err != nil {
+				return
+			}
 			if isRead {
 				eng := (*hashEnginer)(atomic.LoadPointer(&m.eng))
 				eng.putFunc(h, key)
@@ -456,51 +458,13 @@ type keyInfo struct {
 }
 
 //获取t对应的类型信息，不支持slice, function, map, pointer, interface, channel
-func getKeyInfo(t reflect.Type) (ki *keyInfo) {
-	//ki = &keyInfo{}
-	////判断是否实现了hasher接口
-	//if t.Implements(hasherT) {
-	//	ki.isHasher = true
-	//	return
-	//}
-	//ki.kind = t.Kind()
-
-	//if _, ok := engM[ki.kind]; !ok {
-	//	Printf("t is %v, %v\n", t.Kind(), t)
-	//	//some types can be used as key, we can use equals to test
-	//	switch ki.kind {
-	//	case reflect.Slice, reflect.Func, reflect.Map, reflect.Ptr:
-	//		panic("do not support pointer as key")
-	//	case reflect.Interface:
-	//		panic("do not support Interface as key")
-	//	case reflect.Chan:
-	//		panic("do not support Chan as key")
-	//	case reflect.Struct:
-	//		ki.fields = make([]*keyInfo, 0, t.NumField())
-	//		for i := 0; i < t.NumField(); i++ {
-	//			f := t.Field(i)
-	//			//skip unexported field,
-	//			if len(f.PkgPath) > 0 {
-	//				continue
-	//			}
-	//			fi := getKeyInfo(f.Type)
-	//			fi.index = i
-	//			ki.fields = append(ki.fields, fi)
-	//		}
-	//		Printf("t is %v, %v\n", t.Kind(), t)
-	//	case reflect.Array:
-	//		ki.elementInfo = getKeyInfo(t.Elem())
-	//		ki.size = t.Len()
-	//	}
-	//}
-
-	//return
+func getKeyInfo(t reflect.Type) (ki *keyInfo, err error) {
 	return getKeyInfoByParent(t, nil, make([]int, 0, 0))
 }
 
 //获取t对应的类型信息，不支持slice, function, map, pointer, interface, channel
 //如果parentIdx的长度>0，则表示t是strut中的字段的类型信息, t为字段对应的类型
-func getKeyInfoByParent(t reflect.Type, parent *keyInfo, parentIdx []int) (ki *keyInfo) {
+func getKeyInfoByParent(t reflect.Type, parent *keyInfo, parentIdx []int) (ki *keyInfo, err error) {
 	ki = &keyInfo{}
 	//判断是否实现了hasher接口
 	if t.Implements(hasherT) {
@@ -515,12 +479,8 @@ func getKeyInfoByParent(t reflect.Type, parent *keyInfo, parentIdx []int) (ki *k
 	} else {
 		//some types can be used as key, we can use equals to test
 		switch ki.kind {
-		case reflect.Slice, reflect.Func, reflect.Map, reflect.Ptr:
-			panic("do not support pointer as key")
-		case reflect.Interface:
-			panic("do not support Interface as key")
-		case reflect.Chan:
-			panic("do not support Chan as key")
+		case reflect.Chan, reflect.Slice, reflect.Func, reflect.Map, reflect.Ptr, reflect.Interface:
+			err = NonSupportKey
 		case reflect.Struct:
 			if parent == nil {
 				//parent==nil表示t不是一个嵌套的struct，所以这里需要初始化fields
@@ -537,12 +497,18 @@ func getKeyInfoByParent(t reflect.Type, parent *keyInfo, parentIdx []int) (ki *k
 				idx := make([]int, len(parentIdx), len(parentIdx)+1)
 				copy(idx, parentIdx)
 				idx = append(idx, i)
-				fi := getKeyInfoByParent(f.Type, parent, idx)
-				//fi.index = i
-				parent.fields = append(ki.fields, fi)
+				if fi, e := getKeyInfoByParent(f.Type, parent, idx); e != nil {
+					err = e
+					return
+				} else {
+					//fi.index = i
+					parent.fields = append(ki.fields, fi)
+				}
 			}
 		case reflect.Array:
-			ki.elementInfo = getKeyInfo(t.Elem())
+			if ki.elementInfo, err = getKeyInfo(t.Elem()); err != nil {
+				return
+			}
 			ki.size = t.Len()
 			ki.index = parentIdx
 		}

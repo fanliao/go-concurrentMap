@@ -305,7 +305,7 @@ func TestUnableHash(t *testing.T) {
 			}
 		}()
 		cm := NewConcurrentMap()
-		cm.Put(k, 1)
+		_, err = cm.Put(k, 1)
 		return
 	}
 
