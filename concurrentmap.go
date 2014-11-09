@@ -838,7 +838,7 @@ func (this *Segment) get(key interface{}, hash uint32) interface{} {
 	if atomic.LoadInt32(&this.count) != 0 { // atomic-read
 		e := this.getFirst(hash)
 		for e != nil {
-			if e.hash == hash && e.key == key {
+			if e.hash == hash && equals(e.key, key) {
 				v := e.Value()
 				if v != nil {
 					return v
@@ -855,7 +855,7 @@ func (this *Segment) containsKey(key interface{}, hash uint32) bool {
 	if atomic.LoadInt32(&this.count) != 0 { // read-volatile
 		e := this.getFirst(hash)
 		for e != nil {
-			if e.hash == hash && e.key == key {
+			if e.hash == hash && equals(e.key, key) {
 				return true
 			}
 			e = e.next
@@ -869,7 +869,7 @@ func (this *Segment) compareAndReplace(key interface{}, hash uint32, oldValue in
 	defer this.lock.Unlock()
 
 	e := this.getFirst(hash)
-	for e != nil && (e.hash != hash || key != e.key) {
+	for e != nil && (e.hash != hash || !equals(e.key, key)) {
 		e = e.next
 	}
 
@@ -885,7 +885,7 @@ func (this *Segment) replace(key interface{}, hash uint32, newValue interface{})
 	this.lock.Lock()
 	defer this.lock.Unlock()
 	e := this.getFirst(hash)
-	for e != nil && (e.hash != hash || key != e.key) {
+	for e != nil && (e.hash != hash || !equals(e.key, key)) {
 		e = e.next
 	}
 
@@ -920,7 +920,7 @@ func (this *Segment) put(key interface{}, hash uint32, value interface{}, onlyIf
 	first := (*Entry)(tab[index])
 	e := first
 
-	for e != nil && (e.hash != hash || key != e.key) {
+	for e != nil && (e.hash != hash || !equals(e.key, key)) {
 		e = e.next
 	}
 
@@ -951,7 +951,7 @@ func (this *Segment) remove(key interface{}, hash uint32, value interface{}) (ol
 	first := (*Entry)(tab[index])
 	e := first
 
-	for e != nil && (e.hash != hash || key != e.key) {
+	for e != nil && (e.hash != hash || !equals(e.key, key)) {
 		e = e.next
 	}
 

@@ -184,21 +184,12 @@ func Testfloat64Key(t *testing.T) {
 }
 
 func TestPtr(t *testing.T) {
-	//a, b, c, d := 1, 2, 3, 4
-	//testConcurrentMap(t, map[interface{}]interface{}{
-	//	&a: 10,
-	//	&b: 20,
-	//	&c: 30,
-	//	&d: 40,
-	//})
-
-	//cm := NewConcurrentMap()
-	//cm.Put(&a, 10)
-
-	//e := a
-	//if v, err := cm.Get(&e); v != nil || err != nil {
-	//	t.Errorf("Get %v, return %v, %v, want %v", &e, v, err, nil)
-	//}
+	cm := NewConcurrentMap()
+	a := 1
+	p, err := cm.Put(&a, 10)
+	if err == nil {
+		t.Errorf("Put pointer return %v, %v, want %v", p, err, nil, NonSupportKey)
+	}
 }
 
 func TestEmptyInterface(t *testing.T) {
@@ -228,9 +219,47 @@ func (u *user) Id() string {
 	return u.id
 }
 
+func (u *user) HashBytes() []byte {
+	return []byte(u.id)
+}
+func (u *user) Equals(v2 interface{}) bool {
+	if u2, ok := v2.(*user); !ok {
+		return false
+	} else {
+		return u.id == u2.id
+	}
+}
+
 type Ider interface {
 	Id() string
 }
+
+func TestHasherKey(t *testing.T) {
+	var a, b, c, d interface{} = &user{"1", "n1"}, &user{"2", "n2"}, &user{"3", "n3"}, &user{"4", "n4"}
+	testConcurrentMap(t, map[interface{}]interface{}{
+		a: 10,
+		b: 20,
+		c: 30,
+		d: 40,
+	})
+
+	cm := NewConcurrentMap()
+	cm.Put(a, 10)
+
+	e := &user{"1", "n1"}
+	if v, err := cm.Get(e); v != 10 || err != nil {
+		t.Errorf("Get %v, return %v, %v, want %v", &e, v, err, 10)
+	}
+}
+
+//func TestHasherKey(t *testing.T) {
+//	testConcurrentMap(t, map[interface{}]interface{}{
+//		float64(1): 10,
+//		float64(2): 20,
+//		float64(3): 30,
+//		float64(4): 40,
+//	})
+//}
 
 func TestInterface(t *testing.T) {
 	//var a, b, c, d Ider = &user{"1", "n1"}, &user{"2", "n2"}, &user{"3", "n3"}, &user{"4", "n4"}

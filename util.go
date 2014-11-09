@@ -557,6 +557,14 @@ func getPutFunc(ki *keyInfo) func(w io.Writer, k interface{}) {
 	return nil
 }
 
+func equals(k1, k2 interface{}) bool {
+	if h1, ok := k1.(Hasher); ok {
+		return h1.Equals(k2)
+	} else {
+		return k1 == k2
+	}
+}
+
 func Printf(format string, a ...interface{}) (n int, err error) {
 	if Debug {
 		return fmt.Printf(format, a...)
