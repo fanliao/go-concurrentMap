@@ -183,15 +183,7 @@ func Testfloat64Key(t *testing.T) {
 	})
 }
 
-func TestPtr(t *testing.T) {
-	cm := NewConcurrentMap()
-	a := 1
-	p, err := cm.Put(&a, 10)
-	if err == nil {
-		t.Errorf("Put pointer return %v, %v, want %v", p, err, nil, NonSupportKey)
-	}
-}
-
+//note interface{} is empty interface
 func TestEmptyInterface(t *testing.T) {
 	var a, b, c, d interface{} = 1, 2, 3, 4
 	testConcurrentMap(t, map[interface{}]interface{}{
@@ -252,31 +244,33 @@ func TestHasherKey(t *testing.T) {
 	}
 }
 
-//func TestHasherKey(t *testing.T) {
-//	testConcurrentMap(t, map[interface{}]interface{}{
-//		float64(1): 10,
-//		float64(2): 20,
-//		float64(3): 30,
-//		float64(4): 40,
-//	})
-//}
+type user1 struct {
+	id   string
+	Name string
+}
 
+func (u *user1) Id() string {
+	return u.id
+}
+
+//The kind of interface is a realy pointer, so don't support it as key
 func TestInterface(t *testing.T) {
-	//var a, b, c, d Ider = &user{"1", "n1"}, &user{"2", "n2"}, &user{"3", "n3"}, &user{"4", "n4"}
-	//testConcurrentMap(t, map[interface{}]interface{}{
-	//	a: 10,
-	//	b: 20,
-	//	c: 30,
-	//	d: 40,
-	//})
+	cm := NewConcurrentMap()
+	var a Ider = &user1{"1", "n1"}
+	p, err := cm.Put(a, 10)
+	if err == nil {
+		t.Errorf("Put pointer return %v, %v, want %v", p, err, NonSupportKey)
+	}
+}
 
-	////test using the interface object and original value as key, two value should return the same hash code
-	//cm := NewConcurrentMap()
-	//cm.Put(a, 10)
-	//e := a.(*user)
-	//if v, err := cm.Get(e); v != 10 || err != nil {
-	//	t.Errorf("Get %v, return %v, %v, want %v", &e, v, err, 10)
-	//}
+//don't support pointer as key
+func TestPtr(t *testing.T) {
+	cm := NewConcurrentMap()
+	a := 1
+	p, err := cm.Put(&a, 10)
+	if err == nil {
+		t.Errorf("Put pointer return %v, %v, want %v", p, err, nil, NonSupportKey)
+	}
 }
 
 type small struct {
@@ -324,6 +318,69 @@ func TestCompositeStruct(t *testing.T) {
 	if v, err := cm.Get(e); v != 10 || err != nil {
 		t.Errorf("Get %v, return %v, %v, want %v", &e, v, err, 10)
 	}
+}
+
+/**
+ * test update method
+ * put three *user, e.g. &{"1", "jack"}, &{"2", "jack"}, &{"3", "stone"}
+ * last map will include:
+ * map{
+ *    "jack":  [&{"1", "jack"}, &{"2", "jack"}]
+ *    "stone": [&{"3", "stone"}]
+ * }
+ **/
+func TestUpdate(t *testing.T) {
+	//action will merge *user into an []*user
+	action := func(oldValue interface{}, newValue interface{}) (lastValue interface{}) {
+		var users []*user
+		if oldValue == nil {
+			users = make([]*user, 0, 1)
+		} else {
+			users = oldValue.([]*user)
+		}
+		lastValue = append(users, newValue.(*user))
+		return
+	}
+
+	cm := NewConcurrentMap()
+
+	//put user with name jack
+	u1 := &user{id: "1", Name: "jack"}
+	old, err := cm.Update(u1.Name, u1, action)
+	if old != nil || err != nil {
+		t.Errorf("Update %v, %v, return %v, %v, want nil, nil", u1.id, u1, old, err)
+	}
+
+	//
+	v, err := cm.Get(u1.Name)
+	if users := v.([]*user); len(users) != 1 || users[0] != u1 {
+		t.Errorf("Get %v, return %v, %v, want []{%v}, nil", u1.id, users, err, old, u1)
+	}
+
+	//put another user with name jack, the new value mapping to key "jack" should be a slice included u1 and u2
+	u2 := &user{id: "2", Name: "jack"}
+	old, err = cm.Update(u2.Name, u2, action)
+	if users := old.([]*user); old == nil || len(users) != 1 || users[0] != u1 || err != nil {
+		t.Errorf("Update %v, %v, return %#v, %v, want []{%v}, nil", u2.Name, u2, old, err, u1)
+	}
+
+	v, err = cm.Get(u2.Name)
+	if users := v.([]*user); len(users) != 2 || users[1] != u2 {
+		t.Errorf("Get %v, return %v, %v, want []{%v, %v}, nil", u2.Name, users, err, old, u1, u2)
+	}
+
+	//put an user with name stone
+	u3 := &user{id: "3", Name: "stone"}
+	old, err = cm.Update(u3.Name, u3, action)
+	if old != nil || err != nil {
+		t.Errorf("Update %v, %v, return %#v, %v, want nil, nil", u3.Name, u3, old, err)
+	}
+
+	v, err = cm.Get(u3.Name)
+	if users := v.([]*user); len(users) != 1 || users[0] != u3 {
+		t.Errorf("Get %v, return %v, %v, want []{%v}, nil", u3.Name, users, err, old, u3)
+	}
+
 }
 
 func TestUnableHash(t *testing.T) {

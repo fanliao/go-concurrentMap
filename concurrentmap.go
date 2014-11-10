@@ -54,8 +54,9 @@ const (
 
 var (
 	Debug           = false
-	NilKeyError     = errors.New("Nil key error")
-	NilValueError   = errors.New("Nil value error")
+	NilKeyError     = errors.New("Do not support nil as key")
+	NilValueError   = errors.New("Do not support nil as value")
+	NilActionError  = errors.New("Do not support nil as action")
 	NonSupportKey   = errors.New("Non support for pointer, interface, channel, slice, map and function ")
 	IllegalArgError = errors.New("IllegalArgumentException")
 )
@@ -270,7 +271,7 @@ func (this *ConcurrentMap) Put(key interface{}, value interface{}) (previous int
 		err = e
 	} else {
 		Printf("Put, %v, %v\n", key, hash)
-		previous = this.segmentFor(hash).put(key, hash, value, false)
+		previous = this.segmentFor(hash).put(key, hash, value, false, nil)
 	}
 	//hash := hash2(hashKey(key, this, true))
 	//Printf("Put, %v, %v\n", key, hash)
@@ -301,11 +302,44 @@ func (this *ConcurrentMap) PutIfAbsent(key interface{}, value interface{}) (prev
 		err = e
 	} else {
 		Printf("PutIfAbsent, %v, %v\n", key, hash)
-		previous = this.segmentFor(hash).put(key, hash, value, true)
+		previous = this.segmentFor(hash).put(key, hash, value, true, nil)
 	}
 	//hash := hash2(hashKey(key, this, true))
 	//Printf("PutIfAbsent, %v, %v\n", key, hash)
 	//previous = this.segmentFor(hash).put(key, hash, value, true)
+	return
+}
+
+/**
+ * Maps the specified key to the specified value in this table.
+ * Neither the key nor the value can be nil.
+ *
+ * The value can be retrieved by calling the get method
+ * with a key that is equal to the original key.
+ *
+ * @param key with which the specified value is to be associated
+ * @param value to be associated with the specified key
+ *
+ * @return the previous value associated with key, or
+ *         nil if there was no mapping for key
+ */
+func (this *ConcurrentMap) Update(key interface{}, value interface{}, action func(oldValue interface{}, newValue interface{}) (lastValue interface{})) (previous interface{}, err error) {
+	if isNil(key) {
+		return nil, NilKeyError
+	}
+	if action == nil {
+		return nil, NilActionError
+	}
+
+	if hash, e := hashKey(key, this, false); e != nil {
+		err = e
+	} else {
+		Printf("Put, %v, %v\n", key, hash)
+		previous = this.segmentFor(hash).put(key, hash, value, false, action)
+	}
+	//hash := hash2(hashKey(key, this, true))
+	//Printf("Put, %v, %v\n", key, hash)
+	//previous = this.segmentFor(hash).put(key, hash, value, false)
 	return
 }
 
@@ -905,7 +939,7 @@ func (this *Segment) replace(key interface{}, hash uint32, newValue interface{})
  * 由此保证了多线程情况下读和写线程中看到的操作次序不会发送混乱，
  * 在Golang中，StorePointer内部使用了xchgl指令，具有内存屏障，但是Load操作似乎并未具有明确的acquire语义
  */
-func (this *Segment) put(key interface{}, hash uint32, value interface{}, onlyIfAbsent bool) (oldValue interface{}) {
+func (this *Segment) put(key interface{}, hash uint32, value interface{}, onlyIfAbsent bool, action func(o interface{}, n interface{}) (last interface{})) (oldValue interface{}) {
 	this.lock.Lock()
 	defer this.lock.Unlock()
 
@@ -924,16 +958,36 @@ func (this *Segment) put(key interface{}, hash uint32, value interface{}, onlyIf
 		e = e.next
 	}
 
-	if e != nil {
-		oldValue = e.fastValue()
-		if !onlyIfAbsent {
-			e.storeValue(&value)
+	if action == nil {
+		if e != nil {
+			oldValue = e.fastValue()
+			if !onlyIfAbsent {
+				e.storeValue(&value)
+			}
+		} else {
+			oldValue = nil
+			this.modCount++
+			tab[index] = unsafe.Pointer(&Entry{key, hash, unsafe.Pointer(&value), first})
+			atomic.StoreInt32(&this.count, c) // atomic write 这里可以保证对modCount和tab的修改不会被reorder到this.count之后
 		}
 	} else {
-		oldValue = nil
-		this.modCount++
-		tab[index] = unsafe.Pointer(&Entry{key, hash, unsafe.Pointer(&value), first})
-		atomic.StoreInt32(&this.count, c) // atomic write 这里可以保证对modCount和tab的修改不会被reorder到this.count之后
+		if e != nil {
+			oldValue = e.fastValue()
+		} else {
+			oldValue = nil
+		}
+
+		newValue := action(oldValue, value)
+		if newValue != nil {
+			if oldValue == nil {
+				e = &Entry{key, hash, unsafe.Pointer(&value), first}
+				tab[index] = unsafe.Pointer(e)
+				this.modCount++
+				atomic.StoreInt32(&this.count, c) // atomic write 这里可以保证对modCount和tab的修改不会被reorder到this.count之后
+			}
+			e.storeValue(&newValue)
+		}
+
 	}
 	return
 }
