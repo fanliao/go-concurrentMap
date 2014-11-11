@@ -1,7 +1,7 @@
 go-concurrentMap
 ================
 
-go-concurrentMap is a concurrent Map implement, it is copying from java.util.ConcurrentHashMap.
+go-concurrentMap is a concurrent Map implement, it is ported from java.util.ConcurrentHashMap.
 
 ## Quick start
 
@@ -50,7 +50,11 @@ m = concurrent.NewConcurrentMapFromMap(map[interface{}]interface{}{
 		"x":                      "x1val",
 		"xx":                     "x2val",
 	})
+	
+
 ```
+
+## 
 
 ## Performance
 

@@ -2,7 +2,10 @@ package concurrent
 
 import (
 	"errors"
+	//"fmt"
+	"io"
 	"math"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -51,13 +54,32 @@ const (
 )
 
 var (
-	NilKeyError     = errors.New("Nil key error")
-	NilValueError   = errors.New("Nil value error")
+	Debug           = false
+	NilKeyError     = errors.New("Do not support nil as key")
+	NilValueError   = errors.New("Do not support nil as value")
+	NilActionError  = errors.New("Do not support nil as action")
+	NonSupportKey   = errors.New("Non support for pointer, interface, channel, slice, map and function ")
 	IllegalArgError = errors.New("IllegalArgumentException")
 )
 
+type Hasher interface {
+	HashBytes() []byte
+	Equals(v2 interface{}) bool
+}
+
+type hashEnginer struct {
+	putFunc func(w io.Writer, v interface{})
+}
+
 //segments is read-only, don't need synchronized
 type ConcurrentMap struct {
+	engChecker *Once
+	eng        unsafe.Pointer
+
+	/**
+	 * Kind of Reflect value for key
+	 */
+	kind unsafe.Pointer
 	/**
 	 * Mask value for indexing into segments. The upper bits of a
 	 * key's hash code are used to choose the segment.
@@ -186,8 +208,15 @@ func (this *ConcurrentMap) Get(key interface{}) (value interface{}, err error) {
 	if isNil(key) {
 		return nil, NilKeyError
 	}
-	hash := hash2(hashI(key))
-	value = this.segmentFor(hash).get(key, hash)
+	//if atomic.LoadPointer(&this.kind) == nil {
+	//	return nil, nil
+	//}
+	if hash, e := hashKey(key, this, false); e != nil {
+		err = e
+	} else {
+		Printf("Get, %v, %v\n", key, hash)
+		value = this.segmentFor(hash).get(key, hash)
+	}
 	return
 }
 
@@ -202,8 +231,19 @@ func (this *ConcurrentMap) ContainsKey(key interface{}) (found bool, err error) 
 	if isNil(key) {
 		return false, NilKeyError
 	}
-	hash := hash2(hashI(key))
-	found = this.segmentFor(hash).containsKey(key, hash)
+	if atomic.LoadPointer(&this.kind) == nil {
+		return false, nil
+	}
+
+	if hash, e := hashKey(key, this, false); e != nil {
+		err = e
+	} else {
+		Printf("ContainsKey, %v, %v\n", key, hash)
+		found = this.segmentFor(hash).containsKey(key, hash)
+	}
+	//hash := hash2(hashKey(key, this, false))
+	//Printf("ContainsKey, %v, %v\n", key, hash)
+	//found = this.segmentFor(hash).containsKey(key, hash)
 	return
 }
 
@@ -227,8 +267,16 @@ func (this *ConcurrentMap) Put(key interface{}, value interface{}) (previous int
 	if isNil(value) {
 		return nil, NilValueError
 	}
-	hash := hash2(hashI(key))
-	previous = this.segmentFor(hash).put(key, hash, value, false)
+
+	if hash, e := hashKey(key, this, false); e != nil {
+		err = e
+	} else {
+		Printf("Put, %v, %v\n", key, hash)
+		previous = this.segmentFor(hash).put(key, hash, value, false, nil)
+	}
+	//hash := hash2(hashKey(key, this, true))
+	//Printf("Put, %v, %v\n", key, hash)
+	//previous = this.segmentFor(hash).put(key, hash, value, false)
 	return
 }
 
@@ -250,8 +298,49 @@ func (this *ConcurrentMap) PutIfAbsent(key interface{}, value interface{}) (prev
 	if isNil(value) {
 		return nil, NilValueError
 	}
-	hash := hash2(hashI(key))
-	previous = this.segmentFor(hash).put(key, hash, value, true)
+
+	if hash, e := hashKey(key, this, false); e != nil {
+		err = e
+	} else {
+		Printf("PutIfAbsent, %v, %v\n", key, hash)
+		previous = this.segmentFor(hash).put(key, hash, value, true, nil)
+	}
+	//hash := hash2(hashKey(key, this, true))
+	//Printf("PutIfAbsent, %v, %v\n", key, hash)
+	//previous = this.segmentFor(hash).put(key, hash, value, true)
+	return
+}
+
+/**
+ * Maps the specified key to the specified value in this table.
+ * Neither the key nor the value can be nil.
+ *
+ * The value can be retrieved by calling the get method
+ * with a key that is equal to the original key.
+ *
+ * @param key with which the specified value is to be associated
+ * @param value to be associated with the specified key
+ *
+ * @return the previous value associated with key, or
+ *         nil if there was no mapping for key
+ */
+func (this *ConcurrentMap) Update(key interface{}, action func(oldValue interface{}) (newValue interface{})) (previous interface{}, err error) {
+	if isNil(key) {
+		return nil, NilKeyError
+	}
+	if action == nil {
+		return nil, NilActionError
+	}
+
+	if hash, e := hashKey(key, this, false); e != nil {
+		err = e
+	} else {
+		Printf("Put, %v, %v\n", key, hash)
+		previous = this.segmentFor(hash).put(key, hash, nil, false, action)
+	}
+	//hash := hash2(hashKey(key, this, true))
+	//Printf("Put, %v, %v\n", key, hash)
+	//previous = this.segmentFor(hash).put(key, hash, value, false)
 	return
 }
 
@@ -283,8 +372,16 @@ func (this *ConcurrentMap) Remove(key interface{}) (previous interface{}, err er
 	if isNil(key) {
 		return nil, NilKeyError
 	}
-	hash := hash2(hashI(key))
-	previous = this.segmentFor(hash).remove(key, hash, nil)
+
+	if hash, e := hashKey(key, this, false); e != nil {
+		err = e
+	} else {
+		Printf("Remove, %v, %v\n", key, hash)
+		previous = this.segmentFor(hash).remove(key, hash, nil)
+	}
+	//hash := hash2(hashKey(key, this, true))
+	//Printf("Remove, %v, %v\n", key, hash)
+	//previous = this.segmentFor(hash).remove(key, hash, nil)
 	return
 }
 
@@ -301,8 +398,16 @@ func (this *ConcurrentMap) RemoveEntry(key interface{}, value interface{}) (ok b
 	if isNil(value) {
 		return false, NilValueError
 	}
-	hash := hash2(hashI(key))
-	ok = this.segmentFor(hash).remove(key, hash, value) != nil
+
+	if hash, e := hashKey(key, this, false); e != nil {
+		err = e
+	} else {
+		Printf("RemoveEntry, %v, %v\n", key, hash)
+		ok = this.segmentFor(hash).remove(key, hash, value) != nil
+	}
+	//hash := hash2(hashKey(key, this, true))
+	//Printf("RemoveEntry, %v, %v\n", key, hash)
+	//ok = this.segmentFor(hash).remove(key, hash, value) != nil
 	return
 }
 
@@ -320,8 +425,16 @@ func (this *ConcurrentMap) CompareAndReplace(key interface{}, oldValue interface
 	if isNil(oldValue) || isNil(newValue) {
 		return false, NilValueError
 	}
-	hash := hash2(hashI(key))
-	ok = this.segmentFor(hash).replaceWithOld(key, hash, oldValue, newValue)
+
+	if hash, e := hashKey(key, this, false); e != nil {
+		err = e
+	} else {
+		Printf("CompareAndReplace, %v, %v\n", key, hash)
+		ok = this.segmentFor(hash).compareAndReplace(key, hash, oldValue, newValue)
+	}
+	//hash := hash2(hashKey(key, this, true))
+	//Printf("CompareAndReplace, %v, %v\n", key, hash)
+	//ok = this.segmentFor(hash).replaceWithOld(key, hash, oldValue, newValue)
 	return
 }
 
@@ -339,8 +452,16 @@ func (this *ConcurrentMap) Replace(key interface{}, value interface{}) (previous
 	if isNil(value) {
 		return nil, NilValueError
 	}
-	hash := hash2(hashI(key))
-	previous = this.segmentFor(hash).replace(key, hash, value)
+
+	if hash, e := hashKey(key, this, false); e != nil {
+		err = e
+	} else {
+		Printf("Replace, %v, %v\n", key, hash)
+		previous = this.segmentFor(hash).replace(key, hash, value)
+	}
+	//hash := hash2(hashKey(key, this, true))
+	//Printf("Replace, %v, %v\n", key, hash)
+	//previous = this.segmentFor(hash).replace(key, hash, value)
 	return
 }
 
@@ -355,7 +476,96 @@ func (this *ConcurrentMap) Clear() {
 
 //Iterator returns a iterator for ConcurrentMap
 func (this *ConcurrentMap) Iterator() *MapIterator {
-	return NewMapIterator(this)
+	return newMapIterator(this)
+}
+
+//ToSlice returns a slice that includes all key-value Entry in ConcurrentMap
+func (this *ConcurrentMap) ToSlice() (kvs []*Entry) {
+	kvs = make([]*Entry, 0, this.Size())
+	itr := this.Iterator()
+	for itr.HasNext() {
+		kvs = append(kvs, itr.nextEntry())
+	}
+	return
+}
+
+func (this *ConcurrentMap) parseKey(key interface{}) (err error) {
+	this.engChecker.Do(func() {
+		var eng *hashEnginer
+
+		val := key
+
+		if _, ok := val.(Hasher); ok {
+			eng = hasherEng
+		} else {
+			switch v := val.(type) {
+			case bool:
+				_ = v
+				eng = boolEng
+			case int:
+				eng = intEng
+			case int8:
+				eng = int8Eng
+			case int16:
+				eng = int16Eng
+			case int32:
+				eng = int32Eng
+			case int64:
+				eng = int64Eng
+			case uint:
+				eng = uintEng
+			case uint8:
+				eng = uint8Eng
+			case uint16:
+				eng = uint16Eng
+			case uint32:
+				eng = uint32Eng
+			case uint64:
+				eng = uint64Eng
+			case uintptr:
+				eng = uintptrEng
+			case float32:
+				eng = float32Eng
+			case float64:
+				eng = float64Eng
+			case complex64:
+				eng = complex64Eng
+			case complex128:
+				eng = complex128Eng
+			case string:
+				eng = stringEng
+			default:
+				Printf("key = %v, other case\n", key)
+				//some types can be used as key, we can use equals to test
+				//_ = val == val
+
+				rv := reflect.ValueOf(val)
+				if ki, e := getKeyInfo(rv.Type()); e != nil {
+					err = e
+					return
+				} else {
+					putF := getPutFunc(ki)
+					eng = &hashEnginer{}
+					eng.putFunc = putF
+				}
+			}
+		}
+
+		this.eng = unsafe.Pointer(eng)
+
+		Printf("key = %v, eng=%v, %v\n", key, this.eng, eng)
+	})
+	return
+}
+
+func (this *ConcurrentMap) newSegment(initialCapacity int, lf float32) (s *Segment) {
+	s = new(Segment)
+	s.loadFactor = lf
+	table := make([]unsafe.Pointer, initialCapacity)
+	s.setTable(table)
+	s.lock = new(sync.Mutex)
+	s.m = this
+	return
 }
 
 func newConcurrentMap3(initialCapacity int,
@@ -397,8 +607,9 @@ func newConcurrentMap3(initialCapacity int,
 	}
 
 	for i := 0; i < len(m.segments); i++ {
-		m.segments[i] = newSegment(cap, loadFactor)
+		m.segments[i] = m.newSegment(cap, loadFactor)
 	}
+	m.engChecker = new(Once)
 	return
 }
 
@@ -499,6 +710,7 @@ func (this *Entry) storeValue(v *interface{}) {
 }
 
 type Segment struct {
+	m *ConcurrentMap //point to concurrentMap.eng, so it is **hashEnginer
 	/**
 	 * The number of elements in this segment's region.
 	 * Must use atomic package's LoadInt32 and StoreInt32 functions to read/write this field
@@ -537,6 +749,10 @@ type Segment struct {
 	loadFactor float32
 
 	lock *sync.Mutex
+}
+
+func (this *Segment) enginer() *hashEnginer {
+	return (*hashEnginer)(atomic.LoadPointer(&this.m.eng))
 }
 
 func (this *Segment) rehash() {
@@ -667,7 +883,7 @@ func (this *Segment) get(key interface{}, hash uint32) interface{} {
 	if atomic.LoadInt32(&this.count) != 0 { // atomic-read
 		e := this.getFirst(hash)
 		for e != nil {
-			if e.hash == hash && key == e.key {
+			if e.hash == hash && equals(e.key, key) {
 				v := e.Value()
 				if v != nil {
 					return v
@@ -684,7 +900,7 @@ func (this *Segment) containsKey(key interface{}, hash uint32) bool {
 	if atomic.LoadInt32(&this.count) != 0 { // read-volatile
 		e := this.getFirst(hash)
 		for e != nil {
-			if e.hash == hash && key == e.key {
+			if e.hash == hash && equals(e.key, key) {
 				return true
 			}
 			e = e.next
@@ -693,12 +909,12 @@ func (this *Segment) containsKey(key interface{}, hash uint32) bool {
 	return false
 }
 
-func (this *Segment) replaceWithOld(key interface{}, hash uint32, oldValue interface{}, newValue interface{}) bool {
+func (this *Segment) compareAndReplace(key interface{}, hash uint32, oldValue interface{}, newValue interface{}) bool {
 	this.lock.Lock()
 	defer this.lock.Unlock()
 
 	e := this.getFirst(hash)
-	for e != nil && (e.hash != hash || key != e.key) {
+	for e != nil && (e.hash != hash || !equals(e.key, key)) {
 		e = e.next
 	}
 
@@ -714,7 +930,7 @@ func (this *Segment) replace(key interface{}, hash uint32, newValue interface{})
 	this.lock.Lock()
 	defer this.lock.Unlock()
 	e := this.getFirst(hash)
-	for e != nil && (e.hash != hash || key != e.key) {
+	for e != nil && (e.hash != hash || !equals(e.key, key)) {
 		e = e.next
 	}
 
@@ -734,7 +950,7 @@ func (this *Segment) replace(key interface{}, hash uint32, newValue interface{})
  * 由此保证了多线程情况下读和写线程中看到的操作次序不会发送混乱，
  * 在Golang中，StorePointer内部使用了xchgl指令，具有内存屏障，但是Load操作似乎并未具有明确的acquire语义
  */
-func (this *Segment) put(key interface{}, hash uint32, value interface{}, onlyIfAbsent bool) (oldValue interface{}) {
+func (this *Segment) put(key interface{}, hash uint32, value interface{}, onlyIfAbsent bool, action func(oldValue interface{}) (newValue interface{})) (oldValue interface{}) {
 	this.lock.Lock()
 	defer this.lock.Unlock()
 
@@ -748,20 +964,41 @@ func (this *Segment) put(key interface{}, hash uint32, value interface{}, onlyIf
 	index := hash & uint32(len(tab)-1)
 	first := (*Entry)(tab[index])
 	e := first
-	for e != nil && (e.hash != hash || key != e.key) {
+
+	for e != nil && (e.hash != hash || !equals(e.key, key)) {
 		e = e.next
 	}
 
-	if e != nil {
-		oldValue = e.fastValue()
-		if !onlyIfAbsent {
-			e.storeValue(&value)
+	if action == nil {
+		if e != nil {
+			oldValue = e.fastValue()
+			if !onlyIfAbsent {
+				e.storeValue(&value)
+			}
+		} else {
+			oldValue = nil
+			this.modCount++
+			tab[index] = unsafe.Pointer(&Entry{key, hash, unsafe.Pointer(&value), first})
+			atomic.StoreInt32(&this.count, c) // atomic write 这里可以保证对modCount和tab的修改不会被reorder到this.count之后
 		}
 	} else {
-		oldValue = nil
-		this.modCount++
-		tab[index] = unsafe.Pointer(&Entry{key, hash, unsafe.Pointer(&value), first})
-		atomic.StoreInt32(&this.count, c) // atomic write 这里可以保证对modCount和tab的修改不会被reorder到this.count之后
+		if e != nil {
+			oldValue = e.fastValue()
+		} else {
+			oldValue = nil
+		}
+
+		newValue := action(oldValue)
+		if newValue != nil {
+			if oldValue == nil {
+				e = &Entry{key, hash, unsafe.Pointer(&value), first}
+				tab[index] = unsafe.Pointer(e)
+				this.modCount++
+				atomic.StoreInt32(&this.count, c) // atomic write 这里可以保证对modCount和tab的修改不会被reorder到this.count之后
+			}
+			e.storeValue(&newValue)
+		}
+
 	}
 	return
 }
@@ -779,7 +1016,7 @@ func (this *Segment) remove(key interface{}, hash uint32, value interface{}) (ol
 	first := (*Entry)(tab[index])
 	e := first
 
-	for e != nil && (e.hash != hash || key != e.key) {
+	for e != nil && (e.hash != hash || !equals(e.key, key)) {
 		e = e.next
 	}
 
@@ -816,15 +1053,6 @@ func (this *Segment) clear() {
 	}
 }
 
-func newSegment(initialCapacity int, lf float32) (s *Segment) {
-	s = new(Segment)
-	s.loadFactor = lf
-	table := make([]unsafe.Pointer, initialCapacity)
-	s.setTable(table)
-	s.lock = new(sync.Mutex)
-	return
-}
-
 /**
  * Applies a supplemental hash function to a given hashCode, which
  * defends against poor quality hash functions.  This is critical
@@ -853,23 +1081,23 @@ type MapIterator struct {
 	nextSegmentIndex int
 	nextTableIndex   int
 	currentTable     []unsafe.Pointer
-	nextEntry        *Entry
+	nextE            *Entry
 	lastReturned     *Entry
 	cm               *ConcurrentMap
 }
 
 func (this *MapIterator) advance() {
-	if this.nextEntry != nil {
-		this.nextEntry = this.nextEntry.next
-		if this.nextEntry != nil {
+	if this.nextE != nil {
+		this.nextE = this.nextE.next
+		if this.nextE != nil {
 			return
 		}
 	}
 
 	for this.nextTableIndex >= 0 {
-		this.nextEntry = (*Entry)(atomic.LoadPointer(&this.currentTable[this.nextTableIndex]))
+		this.nextE = (*Entry)(atomic.LoadPointer(&this.currentTable[this.nextTableIndex]))
 		this.nextTableIndex--
-		if this.nextEntry != nil {
+		if this.nextE != nil {
 			return
 		}
 	}
@@ -880,8 +1108,8 @@ func (this *MapIterator) advance() {
 		if atomic.LoadInt32(&seg.count) != 0 {
 			this.currentTable = seg.loadTable()
 			for j := len(this.currentTable) - 1; j >= 0; j-- {
-				this.nextEntry = (*Entry)(atomic.LoadPointer(&this.currentTable[j]))
-				if this.nextEntry != nil {
+				this.nextE = (*Entry)(atomic.LoadPointer(&this.currentTable[j]))
+				if this.nextE != nil {
 					this.nextTableIndex = j - 1
 					return
 				}
@@ -891,27 +1119,38 @@ func (this *MapIterator) advance() {
 }
 
 func (this *MapIterator) HasNext() bool {
-	return this.nextEntry != nil
+	return this.nextE != nil
 }
 
-func (this *MapIterator) NextEntry() *Entry {
-	if this.nextEntry == nil {
-		panic(errors.New("NoSuchElementException"))
+func (this *MapIterator) Next() (key interface{}, value interface{}, ok bool) {
+	if this.nextE == nil {
+		return nil, nil, false
 	}
-	this.lastReturned = this.nextEntry
+	this.lastReturned = this.nextE
+	this.advance()
+	key, value, ok = this.lastReturned.Key(), this.lastReturned.Value(), true
+	return
+}
+
+func (this *MapIterator) Remove() (ok bool) {
+	if this.lastReturned == nil {
+		return false
+	}
+	this.cm.Remove(this.lastReturned.key)
+	this.lastReturned = nil
+	return true
+}
+
+func (this *MapIterator) nextEntry() *Entry {
+	if this.nextE == nil {
+		panic("IllegalStateException")
+	}
+	this.lastReturned = this.nextE
 	this.advance()
 	return this.lastReturned
 }
 
-func (this *MapIterator) Remove() {
-	if this.lastReturned == nil {
-		panic("IllegalStateException")
-	}
-	this.cm.Remove(this.lastReturned.key)
-	this.lastReturned = nil
-}
-
-func NewMapIterator(cm *ConcurrentMap) *MapIterator {
+func newMapIterator(cm *ConcurrentMap) *MapIterator {
 	hi := MapIterator{}
 	hi.nextSegmentIndex = len(cm.segments) - 1
 	hi.nextTableIndex = -1

@@ -1,9 +1,7 @@
 package concurrent
 
 import (
-	"errors"
 	"fmt"
-	c "github.com/smartystreets/goconvey/convey"
 	"math"
 	"math/rand"
 	"reflect"
@@ -15,6 +13,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	c "github.com/smartystreets/goconvey/convey"
 )
 
 func TestNil(t *testing.T) {
@@ -80,7 +80,7 @@ func testConcurrentMap(t *testing.T, datas map[interface{}]interface{}) {
 	//test Put again
 	previou, err = m.Put(firstKey, firstVal)
 	if previou != firstVal || err != nil {
-		t.Errorf("Put %v, %v second time, return %v, %v, want %v, nil", firstKey, firstVal, firstVal, previou, err)
+		t.Errorf("Put %v, %v second time, return %v, %v, want %v, nil", firstKey, firstVal, previou, err, firstVal)
 	}
 
 	//test PutIfAbsent, if value is incorrect, PutIfAbsent will be ignored
@@ -182,24 +182,7 @@ func Testfloat64Key(t *testing.T) {
 	})
 }
 
-func TestPtr(t *testing.T) {
-	a, b, c, d := 1, 2, 3, 4
-	testConcurrentMap(t, map[interface{}]interface{}{
-		&a: 10,
-		&b: 20,
-		&c: 30,
-		&d: 40,
-	})
-
-	cm := NewConcurrentMap()
-	cm.Put(&a, 10)
-
-	e := a
-	if v, err := cm.Get(&e); v != nil || err != nil {
-		t.Errorf("Get %v, return %v, %v, want %v", &e, v, err, nil)
-	}
-}
-
+//note interface{} is empty interface
 func TestEmptyInterface(t *testing.T) {
 	var a, b, c, d interface{} = 1, 2, 3, 4
 	testConcurrentMap(t, map[interface{}]interface{}{
@@ -218,21 +201,23 @@ func TestEmptyInterface(t *testing.T) {
 	}
 }
 
+//user implements concurrent.Hasher interface
 type user struct {
 	id   string
-	name string
+	Name string
 }
 
-func (u *user) Id() string {
-	return u.id
+func (u *user) HashBytes() []byte {
+	return []byte(u.id)
+}
+func (u *user) Equals(v2 interface{}) (equal bool) {
+	u2, ok := v2.(*user)
+	return ok && u.id == u2.id
 }
 
-type Ider interface {
-	Id() string
-}
-
-func TestInterface(t *testing.T) {
-	var a, b, c, d Ider = &user{"1", "n1"}, &user{"2", "n2"}, &user{"3", "n3"}, &user{"4", "n4"}
+//test Hasher interface
+func TestHasherKey(t *testing.T) {
+	var a, b, c, d interface{} = &user{"1", "n1"}, &user{"2", "n2"}, &user{"3", "n3"}, &user{"4", "n4"}
 	testConcurrentMap(t, map[interface{}]interface{}{
 		a: 10,
 		b: 20,
@@ -240,20 +225,23 @@ func TestInterface(t *testing.T) {
 		d: 40,
 	})
 
-	//test using the interface object and original value as key, two value should return the same hash code
 	cm := NewConcurrentMap()
 	cm.Put(a, 10)
-	e := a.(*user)
+
+	e := &user{"1", "n1"}
 	if v, err := cm.Get(e); v != 10 || err != nil {
 		t.Errorf("Get %v, return %v, %v, want %v", &e, v, err, 10)
 	}
 }
 
+//size of small is less than word size
+//the memory layout is different with struct what size is greater than word size before golang 1.4
 type small struct {
-	id   byte
+	Id   byte
 	name byte
 }
 
+//test small struct
 func TestSmallStruct(t *testing.T) {
 	a, b, c, d := small{1, 1}, small{2, 2}, small{3, 3}, small{4, 4}
 	testConcurrentMap(t, map[interface{}]interface{}{
@@ -272,33 +260,175 @@ func TestSmallStruct(t *testing.T) {
 	}
 }
 
+//compositeStruct include anothe struct
+type compositeStruct struct {
+	F1 string
+	f2 int
+	small
+}
+
+//test composite Struct
+func TestCompositeStruct(t *testing.T) {
+	a, b, c, d := compositeStruct{"1", 1, small{1, 1}}, compositeStruct{"2", 2, small{2, 2}}, compositeStruct{"3", 3, small{3, 3}}, compositeStruct{"4", 4, small{4, 4}}
+	testConcurrentMap(t, map[interface{}]interface{}{
+		a: 10,
+		b: 20,
+		c: 30,
+		d: 40,
+	})
+
+	//test using the interface object and original value as key, two value should return the same hash code
+	cm := NewConcurrentMap()
+	cm.Put(a, 10)
+	e := compositeStruct{"1", 1, small{1, 1}}
+	if v, err := cm.Get(e); v != 10 || err != nil {
+		t.Errorf("Get %v, return %v, %v, want %v", &e, v, err, 10)
+	}
+}
+
+/**
+ * test update method
+ * put three *user, e.g. &{"1", "jack"}, &{"2", "jack"}, &{"3", "stone"}
+ * last map will include:
+ * map{
+ *    "jack":  [&{"1", "jack"}, &{"2", "jack"}]
+ *    "stone": [&{"3", "stone"}]
+ * }
+ **/
+func TestUpdate(t *testing.T) {
+	//appendFunc returns a function that appends an user into *user slice
+	appendFunc := func(u *user) func(oldValue interface{}) (newValue interface{}) {
+		return func(oldValue interface{}) (newValue interface{}) {
+			var users []*user
+			if oldValue == nil {
+				users = make([]*user, 0, 1)
+			} else {
+				users = oldValue.([]*user)
+			}
+			newValue = append(users, u)
+			return
+		}
+	}
+
+	cm := NewConcurrentMap()
+
+	//put user with name jack
+	u1 := &user{id: "1", Name: "jack"}
+	old, err := cm.Update(u1.Name, appendFunc(u1))
+	if old != nil || err != nil {
+		t.Errorf("Update %v, %v, return %v, %v, want nil, nil", u1.id, u1, old, err)
+	}
+
+	//Getting value by "jack" returns [u1]
+	v, err := cm.Get(u1.Name)
+	if users := v.([]*user); len(users) != 1 || users[0] != u1 {
+		t.Errorf("Get %v, return %v, %v, want [%v], nil", u1.id, users, err, old, u1)
+	}
+
+	//put another user with name jack
+	u2 := &user{id: "2", Name: "jack"}
+	old, err = cm.Update(u2.Name, appendFunc(u2))
+	if users := old.([]*user); old == nil || len(users) != 1 || users[0] != u1 || err != nil {
+		t.Errorf("Update %v, %v, return %#v, %v, want [%v], nil", u2.Name, u2, old, err, u1)
+	}
+
+	//Getting value by "jack" returns [u1, u2]
+	v, err = cm.Get(u2.Name)
+	if users := v.([]*user); len(users) != 2 || users[1] != u2 {
+		t.Errorf("Get %v, return %v, %v, want [%v, %v], nil", u2.Name, users, err, old, u1, u2)
+	}
+
+	//put an user with name stone
+	u3 := &user{id: "3", Name: "stone"}
+	old, err = cm.Update(u3.Name, appendFunc(u3))
+	if old != nil || err != nil {
+		t.Errorf("Update %v, %v, return %#v, %v, want nil, nil", u3.Name, u3, old, err)
+	}
+
+	//Getting value by "stone" returns [u3]
+	v, err = cm.Get(u3.Name)
+	if users := v.([]*user); len(users) != 1 || users[0] != u3 {
+		t.Errorf("Get %v, return %v, %v, want [%v], nil", u3.Name, users, err, old, u3)
+	}
+
+}
+
+//user1 implements Ider interface
+type user1 struct {
+	id   string
+	Name string
+}
+
+func (u *user1) Id() string {
+	return u.id
+}
+
+type Ider interface {
+	Id() string
+}
+
+//test slice, function, map, pointer and interface as key
 func TestUnableHash(t *testing.T) {
 	testHash := func(k interface{}) (err error) {
-		defer func() {
-			if e := recover(); e != nil {
-				err = errors.New("")
-			}
-		}()
 		cm := NewConcurrentMap()
-		cm.Put(k, 1)
+		_, err = cm.Put(k, 1)
 		return
 	}
 
+	//do not support slice as key
 	err := testHash([]int{1})
 	if err == nil {
 		t.Errorf("Put slice, return nil, should be not nil")
 	}
 
+	//do not support function as key
 	f := func() {}
 	err = testHash(f)
 	if err == nil {
 		t.Errorf("Put function, return nil, should be not nil")
 	}
 
+	//do not support map as key
 	err = testHash(map[int]int{1: 1})
 	if err == nil {
 		t.Errorf("Put map, return nil, should be not nil")
 	}
+
+	//do not support pointer as key
+	a := 1
+	err = testHash(&a)
+	if err == nil {
+		t.Errorf("Put function, return nil, should be not nil")
+	}
+
+	//do not support interface as key (note interface is different with interface{})
+	//The kind of interface is a realy pointer
+	var i Ider = &user1{"1", "n1"}
+	err = testHash(i)
+	if err == nil {
+		t.Errorf("Put map, return nil, should be not nil")
+	}
+}
+
+func TestToSlice(t *testing.T) {
+	cm := NewConcurrentMap()
+	kvs := cm.ToSlice()
+	if kvs == nil || len(kvs) != 0 {
+		t.Errorf("Call ToSlice for a empty map, return %v, should be empty slice", kvs)
+	}
+
+	cm.Put(1, 10)
+	kvs = cm.ToSlice()
+	if kvs == nil || len(kvs) != 1 || kvs[0].Key() != 1 || kvs[0].Value() != 10 {
+		t.Errorf("Call ToSlice after put one key-value pair, return %v, should include one entry", kvs)
+	}
+
+	cm.Remove(1)
+	kvs = cm.ToSlice()
+	if kvs == nil || len(kvs) != 0 {
+		t.Errorf("Call ToSlice for a empty map, return %v, should be empty slice", kvs)
+	}
+
 }
 
 /*--------test cases copied from go standard library's map_test.go--------------------*/
@@ -323,7 +453,7 @@ func TestUnableHash(t *testing.T) {
 //	itr := NewHashIterator(m)
 //	for {
 //		if itr.HasNext() {
-//			e := itr.NextEntry()
+//			e := itr.nextEntry()
 //			if math.Copysign(1.0, e.key.(float64)) > 0 {
 //				t.Error("wrong sign")
 //			}
@@ -344,7 +474,7 @@ func TestUnableHash(t *testing.T) {
 //	itr = NewHashIterator(m)
 //	for {
 //		if itr.HasNext() {
-//			e := itr.NextEntry()
+//			e := itr.nextEntry()
 //			if math.Copysign(1.0, e.key.(float64)) < 0 {
 //				t.Error("wrong sign")
 //			}
@@ -367,16 +497,20 @@ func TestNan(t *testing.T) {
 	}
 	s := 0
 	itr := m.Iterator()
-	for itr.HasNext() {
-		entry := itr.NextEntry()
-		k, v := entry.Key().(float64), entry.Value().(int)
+	for {
+		k, v, ok := itr.Next()
+		if !ok {
+			break
+		}
 		if k == k {
 			t.Error("nan disappeared")
 		}
-		if (v & (v - 1)) != 0 {
+
+		vi := v.(int)
+		if (vi & (vi - 1)) != 0 {
 			t.Error("value wrong")
 		}
-		s |= v
+		s |= vi
 	}
 	if s != 7 {
 		t.Error("values wrong")
@@ -393,10 +527,9 @@ func TestGrowWithNaN(t *testing.T) {
 	s := 0
 	growflag := true
 
-	itr := NewMapIterator(m)
-	for itr.HasNext() {
-		entry := itr.NextEntry()
-		k, v := entry.Key().(float64), entry.Value().(int)
+	for itr := m.Iterator(); itr.HasNext(); {
+		ki, vi, _ := itr.Next()
+		k, v := ki.(float64), vi.(int)
 		if growflag {
 			// force a hashtable resize
 			for i := 0; i < 100; i++ {
@@ -512,10 +645,8 @@ func TestIterGrowAndDelete1(t *testing.T) {
 		m.Put(i, i)
 	}
 	growflag := true
-	itr := m.Iterator()
-	for itr.HasNext() {
-		entry := itr.NextEntry()
-		k := entry.Key()
+	for itr := m.Iterator(); itr.HasNext(); {
+		k, _, _ := itr.Next()
 		//t.Log("k ad growflag111111", k, growflag)
 		if growflag {
 			// grow the table
@@ -529,10 +660,9 @@ func TestIterGrowAndDelete1(t *testing.T) {
 			growflag = false
 		} else {
 			if k.(int)&1 == 1 {
-				itr := NewMapIterator(m)
-				for itr.HasNext() {
-					entry := itr.NextEntry()
-					if entry.Key().(int)&1 == 1 {
+				for itr := m.Iterator(); itr.HasNext(); {
+					k, _, _ := itr.Next()
+					if k.(int)&1 == 1 {
 						t.Error("odd value returned by itr")
 					}
 				}
@@ -552,10 +682,9 @@ func TestIterGrowWithGC(t *testing.T) {
 	}
 	growflag := true
 	bitmask := 0
-	itr := NewMapIterator(m)
-	for itr.HasNext() {
-		entry := itr.NextEntry()
-		k := entry.Key().(int)
+	for itr := m.Iterator(); itr.HasNext(); {
+		ki, _, _ := itr.Next()
+		k := ki.(int)
 		if k < 16 {
 			bitmask |= 1 << uint(k)
 		}
@@ -593,9 +722,8 @@ func testConcurrentReadsAfterGrowth(t *testing.T, useReflect bool) {
 			for nr := 0; nr < numReader; nr++ {
 				go func() {
 					defer wg.Done()
-					itr := NewMapIterator(m)
-					for itr.HasNext() {
-						_ = itr.NextEntry()
+					for itr := m.Iterator(); itr.HasNext(); {
+						_, _, _ = itr.Next()
 					}
 				}()
 				go func() {
@@ -628,14 +756,13 @@ func TestBigItems(t *testing.T) {
 		key[37] = fmt.Sprintf("string%02d", i)
 		m.Put(key, key) //m[key] = key
 	}
+
 	var keys [100]string
 	var values [100]string
 	i := 0
-	itr := NewMapIterator(m)
-	for itr.HasNext() {
-		entry := itr.NextEntry()
-		k := entry.Key().([256]string)
-		v := entry.Value().([256]string)
+	for itr := m.Iterator(); itr.HasNext(); {
+		ki, vi, _ := itr.Next()
+		k, v := ki.([256]string), vi.([256]string)
 		//for k, v := range m {
 		keys[i] = k[37]
 		values[i] = v[37]
@@ -704,12 +831,8 @@ func TestSingleBucketMapStringKeys_NoDupLen(t *testing.T) {
 }
 
 func testMapLookups(t *testing.T, m *ConcurrentMap) {
-	itr := NewMapIterator(m)
-	for itr.HasNext() {
-		entry := itr.NextEntry()
-		k := entry.Key().(string)
-		v := entry.Value().(string)
-		//for k, v := range m {
+	for itr := m.Iterator(); itr.HasNext(); {
+		k, v, _ := itr.Next()
 		if v1, err := m.Get(k); v1 != v || err != nil {
 			t.Fatalf("m[%q] = %q; want %q", k, v1, v)
 		}
@@ -876,11 +999,10 @@ func TestConcurrent(t *testing.T) {
 	for i := 0; i < readN; i++ {
 		go func() {
 			for {
-				itr := NewMapIterator(cm)
-				for itr.HasNext() {
-					entry := itr.NextEntry()
-					k := entry.Key().(int)
-					v := entry.Value().(string)
+
+				for itr := cm.Iterator(); itr.HasNext(); {
+					ki, vi, _ := itr.Next()
+					k, v := ki.(int), vi.(string)
 					if strconv.Itoa(k) != strings.Trim(v, " ") {
 						t.Errorf("Get %v by %v, want %v == strings.Trim(\"%v\")", v, k, v, k)
 						return
@@ -928,6 +1050,7 @@ func TestConcurrent(t *testing.T) {
 
 	rWg.Wait()
 	<-cLast
+	runtime.GC()
 }
 
 //below code are used in readme.txt
