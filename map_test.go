@@ -1,7 +1,6 @@
 package concurrent
 
 import (
-	"errors"
 	"fmt"
 	"math"
 	"math/rand"
@@ -202,30 +201,21 @@ func TestEmptyInterface(t *testing.T) {
 	}
 }
 
+//user implements concurrent.Hasher interface
 type user struct {
 	id   string
 	Name string
 }
 
-func (u *user) Id() string {
-	return u.id
-}
-
 func (u *user) HashBytes() []byte {
 	return []byte(u.id)
 }
-func (u *user) Equals(v2 interface{}) bool {
-	if u2, ok := v2.(*user); !ok {
-		return false
-	} else {
-		return u.id == u2.id
-	}
+func (u *user) Equals(v2 interface{}) (equal bool) {
+	u2, ok := v2.(*user)
+	return ok && u.id == u2.id
 }
 
-type Ider interface {
-	Id() string
-}
-
+//test Hasher interface
 func TestHasherKey(t *testing.T) {
 	var a, b, c, d interface{} = &user{"1", "n1"}, &user{"2", "n2"}, &user{"3", "n3"}, &user{"4", "n4"}
 	testConcurrentMap(t, map[interface{}]interface{}{
@@ -244,40 +234,14 @@ func TestHasherKey(t *testing.T) {
 	}
 }
 
-type user1 struct {
-	id   string
-	Name string
-}
-
-func (u *user1) Id() string {
-	return u.id
-}
-
-//The kind of interface is a realy pointer, so don't support it as key
-func TestInterface(t *testing.T) {
-	cm := NewConcurrentMap()
-	var a Ider = &user1{"1", "n1"}
-	p, err := cm.Put(a, 10)
-	if err == nil {
-		t.Errorf("Put pointer return %v, %v, want %v", p, err, NonSupportKey)
-	}
-}
-
-//don't support pointer as key
-func TestPtr(t *testing.T) {
-	cm := NewConcurrentMap()
-	a := 1
-	p, err := cm.Put(&a, 10)
-	if err == nil {
-		t.Errorf("Put pointer return %v, %v, want %v", p, err, nil, NonSupportKey)
-	}
-}
-
+//size of small is less than word size
+//the memory layout is different with struct what size is greater than word size before golang 1.4
 type small struct {
 	Id   byte
 	name byte
 }
 
+//test small struct
 func TestSmallStruct(t *testing.T) {
 	a, b, c, d := small{1, 1}, small{2, 2}, small{3, 3}, small{4, 4}
 	testConcurrentMap(t, map[interface{}]interface{}{
@@ -296,12 +260,14 @@ func TestSmallStruct(t *testing.T) {
 	}
 }
 
+//compositeStruct include anothe struct
 type compositeStruct struct {
 	F1 string
 	f2 int
 	small
 }
 
+//test composite Struct
 func TestCompositeStruct(t *testing.T) {
 	a, b, c, d := compositeStruct{"1", 1, small{1, 1}}, compositeStruct{"2", 2, small{2, 2}}, compositeStruct{"3", 3, small{3, 3}}, compositeStruct{"4", 4, small{4, 4}}
 	testConcurrentMap(t, map[interface{}]interface{}{
@@ -353,23 +319,23 @@ func TestUpdate(t *testing.T) {
 		t.Errorf("Update %v, %v, return %v, %v, want nil, nil", u1.id, u1, old, err)
 	}
 
-	//Getting value by "jack" returns {u1}
+	//Getting value by "jack" returns [u1]
 	v, err := cm.Get(u1.Name)
 	if users := v.([]*user); len(users) != 1 || users[0] != u1 {
-		t.Errorf("Get %v, return %v, %v, want []{%v}, nil", u1.id, users, err, old, u1)
+		t.Errorf("Get %v, return %v, %v, want [%v], nil", u1.id, users, err, old, u1)
 	}
 
 	//put another user with name jack
 	u2 := &user{id: "2", Name: "jack"}
 	old, err = cm.Update(u2.Name, appendFunc(u2))
 	if users := old.([]*user); old == nil || len(users) != 1 || users[0] != u1 || err != nil {
-		t.Errorf("Update %v, %v, return %#v, %v, want []{%v}, nil", u2.Name, u2, old, err, u1)
+		t.Errorf("Update %v, %v, return %#v, %v, want [%v], nil", u2.Name, u2, old, err, u1)
 	}
 
-	//Getting value by "jack" returns {u1, u2}
+	//Getting value by "jack" returns [u1, u2]
 	v, err = cm.Get(u2.Name)
 	if users := v.([]*user); len(users) != 2 || users[1] != u2 {
-		t.Errorf("Get %v, return %v, %v, want []{%v, %v}, nil", u2.Name, users, err, old, u1, u2)
+		t.Errorf("Get %v, return %v, %v, want [%v, %v], nil", u2.Name, users, err, old, u1, u2)
 	}
 
 	//put an user with name stone
@@ -379,38 +345,66 @@ func TestUpdate(t *testing.T) {
 		t.Errorf("Update %v, %v, return %#v, %v, want nil, nil", u3.Name, u3, old, err)
 	}
 
-	//Getting value by "stone" returns {u3}
+	//Getting value by "stone" returns [u3]
 	v, err = cm.Get(u3.Name)
 	if users := v.([]*user); len(users) != 1 || users[0] != u3 {
-		t.Errorf("Get %v, return %v, %v, want []{%v}, nil", u3.Name, users, err, old, u3)
+		t.Errorf("Get %v, return %v, %v, want [%v], nil", u3.Name, users, err, old, u3)
 	}
 
 }
 
+//user1 implements Ider interface
+type user1 struct {
+	id   string
+	Name string
+}
+
+func (u *user1) Id() string {
+	return u.id
+}
+
+type Ider interface {
+	Id() string
+}
+
+//test slice, function, map, pointer and interface as key
 func TestUnableHash(t *testing.T) {
 	testHash := func(k interface{}) (err error) {
-		defer func() {
-			if e := recover(); e != nil {
-				err = errors.New("")
-			}
-		}()
 		cm := NewConcurrentMap()
 		_, err = cm.Put(k, 1)
 		return
 	}
 
+	//do not support slice as key
 	err := testHash([]int{1})
 	if err == nil {
 		t.Errorf("Put slice, return nil, should be not nil")
 	}
 
+	//do not support function as key
 	f := func() {}
 	err = testHash(f)
 	if err == nil {
 		t.Errorf("Put function, return nil, should be not nil")
 	}
 
+	//do not support map as key
 	err = testHash(map[int]int{1: 1})
+	if err == nil {
+		t.Errorf("Put map, return nil, should be not nil")
+	}
+
+	//do not support pointer as key
+	a := 1
+	err = testHash(&a)
+	if err == nil {
+		t.Errorf("Put function, return nil, should be not nil")
+	}
+
+	//do not support interface as key (note interface is different with interface{})
+	//The kind of interface is a realy pointer
+	var i Ider = &user1{"1", "n1"}
+	err = testHash(i)
 	if err == nil {
 		t.Errorf("Put map, return nil, should be not nil")
 	}
@@ -425,7 +419,7 @@ func TestToSlice(t *testing.T) {
 
 	cm.Put(1, 10)
 	kvs = cm.ToSlice()
-	if kvs == nil || len(kvs) != 1 {
+	if kvs == nil || len(kvs) != 1 || kvs[0].Key() != 1 || kvs[0].Value() != 10 {
 		t.Errorf("Call ToSlice after put one key-value pair, return %v, should include one entry", kvs)
 	}
 
