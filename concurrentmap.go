@@ -2,6 +2,7 @@ package concurrent
 
 import (
 	"errors"
+	//"fmt"
 	"io"
 	"math"
 	"reflect"
@@ -323,7 +324,7 @@ func (this *ConcurrentMap) PutIfAbsent(key interface{}, value interface{}) (prev
  * @return the previous value associated with key, or
  *         nil if there was no mapping for key
  */
-func (this *ConcurrentMap) Update(key interface{}, value interface{}, action func(oldValue interface{}, newValue interface{}) (lastValue interface{})) (previous interface{}, err error) {
+func (this *ConcurrentMap) Update(key interface{}, action func(oldValue interface{}) (newValue interface{})) (previous interface{}, err error) {
 	if isNil(key) {
 		return nil, NilKeyError
 	}
@@ -335,7 +336,7 @@ func (this *ConcurrentMap) Update(key interface{}, value interface{}, action fun
 		err = e
 	} else {
 		Printf("Put, %v, %v\n", key, hash)
-		previous = this.segmentFor(hash).put(key, hash, value, false, action)
+		previous = this.segmentFor(hash).put(key, hash, nil, false, action)
 	}
 	//hash := hash2(hashKey(key, this, true))
 	//Printf("Put, %v, %v\n", key, hash)
@@ -475,7 +476,17 @@ func (this *ConcurrentMap) Clear() {
 
 //Iterator returns a iterator for ConcurrentMap
 func (this *ConcurrentMap) Iterator() *MapIterator {
-	return NewMapIterator(this)
+	return newMapIterator(this)
+}
+
+//ToSlice returns a slice that includes all key-value Entry in ConcurrentMap
+func (this *ConcurrentMap) ToSlice() (kvs []*Entry) {
+	kvs = make([]*Entry, 0, this.Size())
+	itr := this.Iterator()
+	for itr.HasNext() {
+		kvs = append(kvs, itr.nextEntry())
+	}
+	return
 }
 
 func (this *ConcurrentMap) parseKey(key interface{}) (err error) {
@@ -939,7 +950,7 @@ func (this *Segment) replace(key interface{}, hash uint32, newValue interface{})
  * 由此保证了多线程情况下读和写线程中看到的操作次序不会发送混乱，
  * 在Golang中，StorePointer内部使用了xchgl指令，具有内存屏障，但是Load操作似乎并未具有明确的acquire语义
  */
-func (this *Segment) put(key interface{}, hash uint32, value interface{}, onlyIfAbsent bool, action func(o interface{}, n interface{}) (last interface{})) (oldValue interface{}) {
+func (this *Segment) put(key interface{}, hash uint32, value interface{}, onlyIfAbsent bool, action func(oldValue interface{}) (newValue interface{})) (oldValue interface{}) {
 	this.lock.Lock()
 	defer this.lock.Unlock()
 
@@ -977,7 +988,7 @@ func (this *Segment) put(key interface{}, hash uint32, value interface{}, onlyIf
 			oldValue = nil
 		}
 
-		newValue := action(oldValue, value)
+		newValue := action(oldValue)
 		if newValue != nil {
 			if oldValue == nil {
 				e = &Entry{key, hash, unsafe.Pointer(&value), first}
@@ -1070,23 +1081,23 @@ type MapIterator struct {
 	nextSegmentIndex int
 	nextTableIndex   int
 	currentTable     []unsafe.Pointer
-	nextEntry        *Entry
+	nextE            *Entry
 	lastReturned     *Entry
 	cm               *ConcurrentMap
 }
 
 func (this *MapIterator) advance() {
-	if this.nextEntry != nil {
-		this.nextEntry = this.nextEntry.next
-		if this.nextEntry != nil {
+	if this.nextE != nil {
+		this.nextE = this.nextE.next
+		if this.nextE != nil {
 			return
 		}
 	}
 
 	for this.nextTableIndex >= 0 {
-		this.nextEntry = (*Entry)(atomic.LoadPointer(&this.currentTable[this.nextTableIndex]))
+		this.nextE = (*Entry)(atomic.LoadPointer(&this.currentTable[this.nextTableIndex]))
 		this.nextTableIndex--
-		if this.nextEntry != nil {
+		if this.nextE != nil {
 			return
 		}
 	}
@@ -1097,8 +1108,8 @@ func (this *MapIterator) advance() {
 		if atomic.LoadInt32(&seg.count) != 0 {
 			this.currentTable = seg.loadTable()
 			for j := len(this.currentTable) - 1; j >= 0; j-- {
-				this.nextEntry = (*Entry)(atomic.LoadPointer(&this.currentTable[j]))
-				if this.nextEntry != nil {
+				this.nextE = (*Entry)(atomic.LoadPointer(&this.currentTable[j]))
+				if this.nextE != nil {
 					this.nextTableIndex = j - 1
 					return
 				}
@@ -1108,27 +1119,38 @@ func (this *MapIterator) advance() {
 }
 
 func (this *MapIterator) HasNext() bool {
-	return this.nextEntry != nil
+	return this.nextE != nil
 }
 
-func (this *MapIterator) NextEntry() *Entry {
-	if this.nextEntry == nil {
-		panic(errors.New("NoSuchElementException"))
+func (this *MapIterator) Next() (key interface{}, value interface{}, ok bool) {
+	if this.nextE == nil {
+		return nil, nil, false
 	}
-	this.lastReturned = this.nextEntry
+	this.lastReturned = this.nextE
+	this.advance()
+	key, value, ok = this.lastReturned.Key(), this.lastReturned.Value(), true
+	return
+}
+
+func (this *MapIterator) Remove() (ok bool) {
+	if this.lastReturned == nil {
+		return false
+	}
+	this.cm.Remove(this.lastReturned.key)
+	this.lastReturned = nil
+	return true
+}
+
+func (this *MapIterator) nextEntry() *Entry {
+	if this.nextE == nil {
+		panic("IllegalStateException")
+	}
+	this.lastReturned = this.nextE
 	this.advance()
 	return this.lastReturned
 }
 
-func (this *MapIterator) Remove() {
-	if this.lastReturned == nil {
-		panic("IllegalStateException")
-	}
-	this.cm.Remove(this.lastReturned.key)
-	this.lastReturned = nil
-}
-
-func NewMapIterator(cm *ConcurrentMap) *MapIterator {
+func newMapIterator(cm *ConcurrentMap) *MapIterator {
 	hi := MapIterator{}
 	hi.nextSegmentIndex = len(cm.segments) - 1
 	hi.nextTableIndex = -1
