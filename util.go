@@ -17,7 +17,7 @@ const (
 )
 
 var (
-	hasherT           = reflect.TypeOf((*Hasher)(nil)).Elem()
+	hasherT           = reflect.TypeOf((*Hashable)(nil)).Elem()
 	defaultEqualsfunc func(k1 interface{}, k2 interface{}) bool
 	hasherEng         *hashEnginer
 	boolEng           *hashEnginer
@@ -43,7 +43,7 @@ var (
 func init() {
 	hasherEng = &hashEnginer{
 		putFunc: func(w io.Writer, k interface{}) {
-			w.Write(k.(Hasher).HashBytes())
+			w.Write(k.(Hashable).HashBytes())
 		},
 	}
 	boolEng = &hashEnginer{
@@ -242,7 +242,7 @@ func hashKey(key interface{}, m *ConcurrentMap, isRead bool) (hashCode uint32, e
 		hashCode = h.Sum32()
 	default:
 		//if key is not simple type
-		if her, ok := key.(Hasher); ok {
+		if her, ok := key.(Hashable); ok {
 			h.Write(her.HashBytes())
 		} else {
 			if err = m.parseKey(key); err != nil {
@@ -558,7 +558,7 @@ func getPutFunc(ki *keyInfo) func(w io.Writer, k interface{}) {
 }
 
 func equals(k1, k2 interface{}) bool {
-	if h1, ok := k1.(Hasher); ok {
+	if h1, ok := k1.(Hashable); ok {
 		return h1.Equals(k2)
 	} else {
 		return k1 == k2
