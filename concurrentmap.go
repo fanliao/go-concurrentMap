@@ -62,7 +62,7 @@ var (
 	IllegalArgError = errors.New("IllegalArgumentException")
 )
 
-type Hasher interface {
+type Hashable interface {
 	HashBytes() []byte
 	Equals(v2 interface{}) bool
 }
@@ -260,7 +260,7 @@ func (this *ConcurrentMap) ContainsKey(key interface{}) (found bool, err error) 
  * @return the previous value associated with key, or
  *         nil if there was no mapping for key
  */
-func (this *ConcurrentMap) Put(key interface{}, value interface{}) (previous interface{}, err error) {
+func (this *ConcurrentMap) Put(key interface{}, value interface{}) (oldVal interface{}, err error) {
 	if isNil(key) {
 		return nil, NilKeyError
 	}
@@ -272,11 +272,11 @@ func (this *ConcurrentMap) Put(key interface{}, value interface{}) (previous int
 		err = e
 	} else {
 		Printf("Put, %v, %v\n", key, hash)
-		previous = this.segmentFor(hash).put(key, hash, value, false, nil)
+		oldVal = this.segmentFor(hash).put(key, hash, value, false, nil)
 	}
 	//hash := hash2(hashKey(key, this, true))
 	//Printf("Put, %v, %v\n", key, hash)
-	//previous = this.segmentFor(hash).put(key, hash, value, false)
+	//oldVal = this.segmentFor(hash).put(key, hash, value, false)
 	return
 }
 
@@ -291,7 +291,7 @@ func (this *ConcurrentMap) Put(key interface{}, value interface{}) (previous int
  * @return the previous value associated with the specified key,
  *         or nil if there was no mapping for the key
  */
-func (this *ConcurrentMap) PutIfAbsent(key interface{}, value interface{}) (previous interface{}, err error) {
+func (this *ConcurrentMap) PutIfAbsent(key interface{}, value interface{}) (oldVal interface{}, err error) {
 	if isNil(key) {
 		return nil, NilKeyError
 	}
@@ -303,28 +303,29 @@ func (this *ConcurrentMap) PutIfAbsent(key interface{}, value interface{}) (prev
 		err = e
 	} else {
 		Printf("PutIfAbsent, %v, %v\n", key, hash)
-		previous = this.segmentFor(hash).put(key, hash, value, true, nil)
+		oldVal = this.segmentFor(hash).put(key, hash, value, true, nil)
 	}
 	//hash := hash2(hashKey(key, this, true))
 	//Printf("PutIfAbsent, %v, %v\n", key, hash)
-	//previous = this.segmentFor(hash).put(key, hash, value, true)
+	//oldVal = this.segmentFor(hash).put(key, hash, value, true)
 	return
 }
 
 /**
- * Maps the specified key to the specified value in this table.
- * Neither the key nor the value can be nil.
+ * Maps the specified key to the value that be returned by specified function in this table.
+ * The key can not be nil.
  *
- * The value can be retrieved by calling the get method
- * with a key that is equal to the original key.
+ * The value mapping specified key will be passed into action function as parameter.
+ * If mapping does not exists for the key, nil will be passed into action function.
+ * If return value by action function is nil, the specified key will be remove from map.
  *
  * @param key with which the specified value is to be associated
- * @param value to be associated with the specified key
+ * @param action that be called to generate new value mapping the specified key
  *
  * @return the previous value associated with key, or
  *         nil if there was no mapping for key
  */
-func (this *ConcurrentMap) Update(key interface{}, action func(oldValue interface{}) (newValue interface{})) (previous interface{}, err error) {
+func (this *ConcurrentMap) Update(key interface{}, action func(oldVal interface{}) (newVal interface{})) (oldVal interface{}, err error) {
 	if isNil(key) {
 		return nil, NilKeyError
 	}
@@ -336,11 +337,11 @@ func (this *ConcurrentMap) Update(key interface{}, action func(oldValue interfac
 		err = e
 	} else {
 		Printf("Put, %v, %v\n", key, hash)
-		previous = this.segmentFor(hash).put(key, hash, nil, false, action)
+		oldVal = this.segmentFor(hash).put(key, hash, nil, false, action)
 	}
 	//hash := hash2(hashKey(key, this, true))
 	//Printf("Put, %v, %v\n", key, hash)
-	//previous = this.segmentFor(hash).put(key, hash, value, false)
+	//oldVal = this.segmentFor(hash).put(key, hash, value, false)
 	return
 }
 
@@ -368,7 +369,7 @@ func (this *ConcurrentMap) PutAll(m map[interface{}]interface{}) (err error) {
  * @param  key the key that needs to be removed
  * @return the previous value associated with key, or nil if there was no mapping for key
  */
-func (this *ConcurrentMap) Remove(key interface{}) (previous interface{}, err error) {
+func (this *ConcurrentMap) Remove(key interface{}) (oldVal interface{}, err error) {
 	if isNil(key) {
 		return nil, NilKeyError
 	}
@@ -377,11 +378,11 @@ func (this *ConcurrentMap) Remove(key interface{}) (previous interface{}, err er
 		err = e
 	} else {
 		Printf("Remove, %v, %v\n", key, hash)
-		previous = this.segmentFor(hash).remove(key, hash, nil)
+		oldVal = this.segmentFor(hash).remove(key, hash, nil)
 	}
 	//hash := hash2(hashKey(key, this, true))
 	//Printf("Remove, %v, %v\n", key, hash)
-	//previous = this.segmentFor(hash).remove(key, hash, nil)
+	//oldVal = this.segmentFor(hash).remove(key, hash, nil)
 	return
 }
 
@@ -413,16 +414,16 @@ func (this *ConcurrentMap) RemoveEntry(key interface{}, value interface{}) (ok b
 
 /**
  * CompareAndReplace executes the compare-and-replace operation.
- * Replaces the value if the mapping exists for the oldValue and value from this map.
+ * Replaces the value if the mapping exists for the previous and key from this map.
  * This method does nothing if no mapping for the key and value.
  *
  * @return true if value be replaced, false otherwise
  */
-func (this *ConcurrentMap) CompareAndReplace(key interface{}, oldValue interface{}, newValue interface{}) (ok bool, err error) {
+func (this *ConcurrentMap) CompareAndReplace(key interface{}, oldVal interface{}, newVal interface{}) (ok bool, err error) {
 	if isNil(key) {
 		return false, NilKeyError
 	}
-	if isNil(oldValue) || isNil(newValue) {
+	if isNil(oldVal) || isNil(newVal) {
 		return false, NilValueError
 	}
 
@@ -430,11 +431,11 @@ func (this *ConcurrentMap) CompareAndReplace(key interface{}, oldValue interface
 		err = e
 	} else {
 		Printf("CompareAndReplace, %v, %v\n", key, hash)
-		ok = this.segmentFor(hash).compareAndReplace(key, hash, oldValue, newValue)
+		ok = this.segmentFor(hash).compareAndReplace(key, hash, oldVal, newVal)
 	}
 	//hash := hash2(hashKey(key, this, true))
 	//Printf("CompareAndReplace, %v, %v\n", key, hash)
-	//ok = this.segmentFor(hash).replaceWithOld(key, hash, oldValue, newValue)
+	//ok = this.segmentFor(hash).replaceWithOld(key, hash, oldVal, newVal)
 	return
 }
 
@@ -445,7 +446,7 @@ func (this *ConcurrentMap) CompareAndReplace(key interface{}, oldValue interface
  * @return the previous value associated with the specified key,
  *         or nil if there was no mapping for the key
  */
-func (this *ConcurrentMap) Replace(key interface{}, value interface{}) (previous interface{}, err error) {
+func (this *ConcurrentMap) Replace(key interface{}, value interface{}) (oldVal interface{}, err error) {
 	if isNil(key) {
 		return nil, NilKeyError
 	}
@@ -457,11 +458,11 @@ func (this *ConcurrentMap) Replace(key interface{}, value interface{}) (previous
 		err = e
 	} else {
 		Printf("Replace, %v, %v\n", key, hash)
-		previous = this.segmentFor(hash).replace(key, hash, value)
+		oldVal = this.segmentFor(hash).replace(key, hash, value)
 	}
 	//hash := hash2(hashKey(key, this, true))
 	//Printf("Replace, %v, %v\n", key, hash)
-	//previous = this.segmentFor(hash).replace(key, hash, value)
+	//oldVal = this.segmentFor(hash).replace(key, hash, value)
 	return
 }
 
@@ -495,7 +496,7 @@ func (this *ConcurrentMap) parseKey(key interface{}) (err error) {
 
 		val := key
 
-		if _, ok := val.(Hasher); ok {
+		if _, ok := val.(Hashable); ok {
 			eng = hasherEng
 		} else {
 			switch v := val.(type) {
@@ -886,6 +887,7 @@ func (this *Segment) get(key interface{}, hash uint32) interface{} {
 			if e.hash == hash && equals(e.key, key) {
 				v := e.Value()
 				if v != nil {
+					//return
 					return v
 				}
 				return this.readValueUnderLock(e) // recheck
@@ -909,7 +911,7 @@ func (this *Segment) containsKey(key interface{}, hash uint32) bool {
 	return false
 }
 
-func (this *Segment) compareAndReplace(key interface{}, hash uint32, oldValue interface{}, newValue interface{}) bool {
+func (this *Segment) compareAndReplace(key interface{}, hash uint32, oldVal interface{}, newVal interface{}) bool {
 	this.lock.Lock()
 	defer this.lock.Unlock()
 
@@ -919,14 +921,14 @@ func (this *Segment) compareAndReplace(key interface{}, hash uint32, oldValue in
 	}
 
 	replaced := false
-	if e != nil && oldValue == e.fastValue() {
+	if e != nil && oldVal == e.fastValue() {
 		replaced = true
-		e.storeValue(&newValue)
+		e.storeValue(&newVal)
 	}
 	return replaced
 }
 
-func (this *Segment) replace(key interface{}, hash uint32, newValue interface{}) (oldValue interface{}) {
+func (this *Segment) replace(key interface{}, hash uint32, newVal interface{}) (oldVal interface{}) {
 	this.lock.Lock()
 	defer this.lock.Unlock()
 	e := this.getFirst(hash)
@@ -935,8 +937,8 @@ func (this *Segment) replace(key interface{}, hash uint32, newValue interface{})
 	}
 
 	if e != nil {
-		oldValue = e.fastValue()
-		e.storeValue(&newValue)
+		oldVal = e.fastValue()
+		e.storeValue(&newVal)
 	}
 	return
 }
@@ -950,7 +952,7 @@ func (this *Segment) replace(key interface{}, hash uint32, newValue interface{})
  * 由此保证了多线程情况下读和写线程中看到的操作次序不会发送混乱，
  * 在Golang中，StorePointer内部使用了xchgl指令，具有内存屏障，但是Load操作似乎并未具有明确的acquire语义
  */
-func (this *Segment) put(key interface{}, hash uint32, value interface{}, onlyIfAbsent bool, action func(oldValue interface{}) (newValue interface{})) (oldValue interface{}) {
+func (this *Segment) put(key interface{}, hash uint32, value interface{}, onlyIfAbsent bool, action func(oldValue interface{}) (newVal interface{})) (oldValue interface{}) {
 	this.lock.Lock()
 	defer this.lock.Unlock()
 
@@ -958,7 +960,6 @@ func (this *Segment) put(key interface{}, hash uint32, value interface{}, onlyIf
 	if c > this.threshold { // ensure capacity
 		this.rehash()
 	}
-	c++
 
 	tab := this.table()
 	index := hash & uint32(len(tab)-1)
@@ -976,6 +977,7 @@ func (this *Segment) put(key interface{}, hash uint32, value interface{}, onlyIf
 				e.storeValue(&value)
 			}
 		} else {
+			c++
 			oldValue = nil
 			this.modCount++
 			tab[index] = unsafe.Pointer(&Entry{key, hash, unsafe.Pointer(&value), first})
@@ -985,20 +987,30 @@ func (this *Segment) put(key interface{}, hash uint32, value interface{}, onlyIf
 		if e != nil {
 			oldValue = e.fastValue()
 		} else {
+			c++
 			oldValue = nil
 		}
 
-		newValue := action(oldValue)
-		if newValue != nil {
+		newVal := action(oldValue)
+		if newVal != nil {
 			if oldValue == nil {
 				e = &Entry{key, hash, unsafe.Pointer(&value), first}
 				tab[index] = unsafe.Pointer(e)
 				this.modCount++
 				atomic.StoreInt32(&this.count, c) // atomic write 这里可以保证对modCount和tab的修改不会被reorder到this.count之后
 			}
-			e.storeValue(&newValue)
+			e.storeValue(&newVal)
+		} else if e != nil {
+			//remove key if action returns nil
+			c--
+			this.modCount++
+			newFirst := e.next
+			for p := first; p != e; p = p.next {
+				newFirst = &Entry{p.key, p.hash, p.value, newFirst}
+			}
+			tab[index] = unsafe.Pointer(newFirst)
+			atomic.StoreInt32(&this.count, c) //this.count = c
 		}
-
 	}
 	return
 }

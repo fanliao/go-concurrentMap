@@ -3,7 +3,11 @@ go-concurrentMap
 
 go-concurrentMap is a concurrent Map implement, it is ported from java.util.ConcurrentHashMap.
 
+### Current version: 1.0 Beta
+
 ## Quick start
+
+### Put, Remove, Replace and Clear methods
 
 ```go
 m := concurrent.NewConcurrentMap()
@@ -29,13 +33,60 @@ previou, err = m.Remove(2)                     //return 20, nil
 m.Clear()
 s = m.Size()                                   //return 0
 
-//iterate ConcurrentMap
-itr := m.Iterator()
-for itr.HasNext() {
-	entry := itr.NextEntry()
-	k, v := entry.Key(), entry.Value()
+```
+
+### Safely use composition operation to update the value from multiple threads
+
+```go
+/*---- group string by first char using ConcurrentMap ----*/
+//group function returns a function that appends v into slice
+group := func(v interface{}) (func(interface{}) interface{}){
+    return func(oldVal interface{})(newVal interface{}){
+		if oldVal == nil {
+			vs :=  make([]string, 0, 1)
+			return append(vs, v.(string))
+		} else {
+			return append(oldVal.([]string), v.(string))
+		}
+	}
 }
 
+m := concurrent.NewConcurrentMap()
+previous, err = m.Update("s", group("stone"))    //return nil, nil
+val, err := m.Get("s")                           //return ["stone"], nil
+previous, err = m.Update("j", group("jack"))     //return nil, nil
+val, err = m.Get("j")                           //return ["jack"], nil
+previous, err = m.Update("j", group("jackson"))  //return ["jack"], nil
+val, err = m.Get("j")                           //return ["jack","jackson"], nil
+
+```
+
+### Iterator and get key-value slice
+
+```go
+//iterate ConcurrentMap
+for itr := m.Iterator();itr.HasNext(); {
+	k, v, _ := itr.Next()
+}
+
+//only user Next method to iterate ConcurrentMap
+for itr := m.Iterator();; {
+	k, v, ok := itr.Next()
+	if !ok {
+		break
+	}
+}
+
+//ToSlice
+kvs := m.ToSlice()
+for entry := range kvs{
+	k, v := entry.Key(), entry.Value()
+}
+```
+
+### More factory functions
+
+```go
 //new concurrentMap with specified initial capacity
 m = concurrent.NewConcurrentMap(32)
 
@@ -51,10 +102,7 @@ m = concurrent.NewConcurrentMapFromMap(map[interface{}]interface{}{
 		"xx":                     "x2val",
 	})
 	
-
 ```
-
-## 
 
 ## Performance
 

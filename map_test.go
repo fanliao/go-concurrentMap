@@ -297,16 +297,17 @@ func TestCompositeStruct(t *testing.T) {
  **/
 func TestUpdate(t *testing.T) {
 	//appendFunc returns a function that appends an user into *user slice
-	appendFunc := func(u *user) func(oldValue interface{}) (newValue interface{}) {
-		return func(oldValue interface{}) (newValue interface{}) {
-			var users []*user
-			if oldValue == nil {
-				users = make([]*user, 0, 1)
-			} else {
-				users = oldValue.([]*user)
+	appendFunc := func(u *user) func(oldVal interface{}) (newVal interface{}) {
+		return func(oldVal interface{}) (newVal interface{}) {
+			if u == nil {
+				return nil
 			}
-			newValue = append(users, u)
-			return
+			if oldVal == nil {
+				users := make([]*user, 0, 1)
+				return append(users, u)
+			} else {
+				return append(oldVal.([]*user), u)
+			}
 		}
 	}
 
@@ -349,6 +350,18 @@ func TestUpdate(t *testing.T) {
 	v, err = cm.Get(u3.Name)
 	if users := v.([]*user); len(users) != 1 || users[0] != u3 {
 		t.Errorf("Get %v, return %v, %v, want [%v], nil", u3.Name, users, err, old, u3)
+	}
+
+	//put nil with name stone
+	old, err = cm.Update(u3.Name, appendFunc(nil))
+	if old == nil || err != nil {
+		t.Errorf("Update %v, nil, return %#v, %v, want %v, nil", u3.Name, old, err, u3)
+	}
+	
+	//Getting value by "stone" returns nil
+	v, err = cm.Get(u3.Name)
+	if v != nil || err != nil {
+		t.Errorf("Get %v, return %v, %v, want nil, nil", u3.Name, v, err)
 	}
 
 }
