@@ -136,8 +136,10 @@ m = concurrent.NewConcurrentMapFromMap(map[interface{}]interface{}{
 
 ## Performance
 
-Below are the parameters and CPU of benchmark testing:  
-Xeon E3-1230V3 3.30GHZ
+Below are the parameters and CPU of benchmark testing: 
+ 
+Xeon E3-1230V3 3.30GHZ, Win7 64 OS
+
 Max number of procs is 8，number of goroutines is 9，every goroutines will put or get 100,000 key-value pairs.
 
 I used LockMap to compare the performance, it is a implement that uses the RWMutex to synchronize. The below are the test results:
@@ -150,9 +152,9 @@ I used LockMap to compare the performance, it is a implement that uses the RWMut
 
 * ConcurrentMap Get -------------------- 69.464 ms/op
 
-* LockMap PutAndGet------------------ 589.534 ms/op 
+* LockMap PutAndGet------------------ 729.534 ms/op 
 
-* ConcurrentMap PutAndGet ------------ 183.610 ms/op
+* ConcurrentMap PutAndGet ------------ 166.610 ms/op
 
 Note the performance of LockMap's Get operation is better than concurrentMap, the reason is that RWMutex supports parallel read. But if multiple threads put and get at same time, ConcurrentMap will be better than LockMap.
 
