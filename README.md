@@ -3,11 +3,11 @@ go-concurrentMap
 
 go-concurrentMap is a concurrent Map implement, it is ported from java.util.ConcurrentHashMap.
 
-### Current version: 1.0 Beta
+##### Current version: 1.0 Beta
 
 ## Quick start
 
-### Put, Remove, Replace and Clear methods
+#### Put, Remove, Replace and Clear methods
 
 ```go
 m := concurrent.NewConcurrentMap()
@@ -35,7 +35,7 @@ s = m.Size()                                   //return 0
 
 ```
 
-### Safely use composition operation to update the value from multiple threads
+#### Safely use composition operation to update the value from multiple threads
 
 ```go
 /*---- group string by first char using ConcurrentMap ----*/
@@ -61,7 +61,29 @@ val, err = m.Get("j")                           //return ["jack","jackson"], nil
 
 ```
 
-### Iterator and get key-value slice
+#### Use Hashable interface to customize hash code and equals logic and support reference type and pointer type
+
+```go
+//user implements concurrent.Hasher interface
+type user struct {
+	id   string
+	Name string
+}
+
+func (u *user) HashBytes() []byte {
+	return []byte(u.id)
+}
+func (u *user) Equals(v2 interface{}) (equal bool) {
+	u2, ok := v2.(*user)
+	return ok && u.id == u2.id
+}
+
+m := concurrent.NewConcurrentMap()
+previou, err := m.Put(&user, 10)                   //return nil, nil
+val, err := m.Get(&user)                           //return 10, nil
+```
+
+#### Iterator and get key-value slice
 
 ```go
 //iterate ConcurrentMap
@@ -84,7 +106,7 @@ for entry := range kvs{
 }
 ```
 
-### More factory functions
+#### More factory functions
 
 ```go
 //new concurrentMap with specified initial capacity
@@ -104,29 +126,46 @@ m = concurrent.NewConcurrentMapFromMap(map[interface{}]interface{}{
 	
 ```
 
+## Doc
+
+[Go Doc at godoc.org](https://godoc.org/github.com/fanliao/go-concurrentMap)
+
+## Limitations
+
+* Do not support pointer, slice, map, channel, function and interface (note interface is different with interface{}) as key. If you want to use these types as key, can implements Hashable interface. Because the memory address of reference type and pointer may be changed after GC, so cannot get a invariant value as hash code for reference type and pointer type. Please refer to [when  in next releases of go compacting GC move pointers, does map on poiner types will work ?](https://groups.google.com/forum/#!topic/golang-nuts/AFEf6VM-qrY)
+
 ## Performance
 
-Below are the parameters and CPU of benchmark testing:  
-Xeon E3-1230V3 3.30GHZ
-Max number of procs is 8，number of goroutines is 9，every goroutines will put or get 100,000 key-value pairs.
+Below are the CPU, OS and parameters of benchmark testing: 
+ 
+Xeon E3-1230V3 3.30GHZ, Win7 64 OS
 
-I used LockMap to compare the performance, it is a implement that uses the RWMutex to synchronize. The below are the test results:
+Use 8 procs and 9 goroutines, every goroutines will put or get 100,000 key-value pairs.
 
-* LockMap Put ------------------------- 480.000 ms/op 
+I used a thread safe implement that uses the RWMutex to compare the performance,. The below are the test results:
 
-* ConcurrentMap Put ------------------- 130.207 ms/op
-
-* LockMap Get -------------------------- 45.643 ms/op 
-
-* ConcurrentMap Get -------------------- 69.464 ms/op
-
-* LockMap PutAndGet------------------ 589.534 ms/op 
-
-* ConcurrentMap PutAndGet ------------ 183.610 ms/op
+<table>
+	<tr>
+		<th></th>
+		<th>Use RWMutex</th>
+		<th>ConcurrentMap</th>
+	</tr>
+	<tr>
+		<td>Put</td>
+		<td>480.000 ms/op</td>
+		<td>130.207 ms/op</td>
+	</tr>
+		<td>Get</td>
+		<td>45.643 ms/op</td>
+		<td>69.464 ms/op</td>
+	<tr>
+		<td>Put and Get</td>
+		<td>729.534 ms/op</td>
+		<td>166.610 ms/op</td>
+	</tr>
+</table>
 
 Note the performance of LockMap's Get operation is better than concurrentMap, the reason is that RWMutex supports parallel read. But if multiple threads put and get at same time, ConcurrentMap will be better than LockMap.
-
-According the benchmark testing, the performance of parallel put/get operation can be improved about 300% in four core CPU. 
 
 ## License
 

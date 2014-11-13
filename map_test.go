@@ -217,7 +217,7 @@ func (u *user) Equals(v2 interface{}) (equal bool) {
 
 //test Hasher interface
 func TestHasherKey(t *testing.T) {
-	var a, b, c, d interface{} = &user{"1", "n1"}, &user{"2", "n2"}, &user{"3", "n3"}, &user{"4", "n4"}
+	a, b, c, d := &user{"1", "n1"}, &user{"2", "n2"}, &user{"3", "n3"}, &user{"4", "n4"}
 	testConcurrentMap(t, map[interface{}]interface{}{
 		a: 10,
 		b: 20,
