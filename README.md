@@ -132,7 +132,17 @@ m = concurrent.NewConcurrentMapFromMap(map[interface{}]interface{}{
 
 ## Limitations
 
-* Do not support pointer, slice, map, channel, function and interface (note interface is different with interface{}) as key. If you want to use these types as key, can implements Hashable interface. Because the memory address of reference type and pointer may be changed after GC, so cannot get a invariant value as hash code for reference type and pointer type. Please refer to [when  in next releases of go compacting GC move pointers, does map on poiner types will work ?](https://groups.google.com/forum/#!topic/golang-nuts/AFEf6VM-qrY)
+* Do not support the following types as key:
+
+   - pointer
+   - slice (do not support == operator)
+   - map (do not support == operator)
+   - channel 
+   - function (do not support == operator)
+   - struct that includes field which type is above-mentioned or interface
+   - array which element type is above-mentioned or interface
+
+   Do not support pointer because the memory address of pointer may be changed after GC, so cannot get a invariant value as hash code for pointer type. Please refer to [when  in next releases of go compacting GC move pointers, does map on poiner types will work ?](https://groups.google.com/forum/#!topic/golang-nuts/AFEf6VM-qrY)
 
 ## Performance
 
