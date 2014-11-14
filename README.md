@@ -132,7 +132,7 @@ m = concurrent.NewConcurrentMapFromMap(map[interface{}]interface{}{
 
 ## Limitations
 
-* Do not support the following types as key:
+* Do not support the below types as key:
 
    - pointer
    - slice (do not support == operator)
