@@ -39,8 +39,8 @@ s = m.Size()                                   //return 0
 
 ```go
 /*---- group string by first char using ConcurrentMap ----*/
-//group function returns a function that appends v into slice
-group := func(v interface{}) (func(interface{}) interface{}){
+//sliceAdd function returns a function that appends v into slice
+sliceAdd := func(v interface{}) (func(interface{}) interface{}){
     return func(oldVal interface{})(newVal interface{}){
 		if oldVal == nil {
 			vs :=  make([]string, 0, 1)
@@ -52,13 +52,21 @@ group := func(v interface{}) (func(interface{}) interface{}){
 }
 
 m := concurrent.NewConcurrentMap()
-previous, err = m.Update("s", group("stone"))    //return nil, nil
-val, err := m.Get("s")                           //return ["stone"], nil
-previous, err = m.Update("j", group("jack"))     //return nil, nil
-val, err = m.Get("j")                           //return ["jack"], nil
-previous, err = m.Update("j", group("jackson"))  //return ["jack"], nil
-val, err = m.Get("j")                           //return ["jack","jackson"], nil
+//group by first char of str
+group := func(str string) {
+	m.Update(string(str[0]), sliceAdd(str))
+}
 
+go group("stone")
+go group("jack")
+go group("jackson")
+
+/*m will include the below key-value pairs, but please note sequence may be different:
+{
+  s:[stone],
+  j:[jack jackson],
+}
+*/
 ```
 
 #### Use Hashable interface to customize hash code and equals logic and support reference type and pointer type
@@ -100,8 +108,7 @@ for itr := m.Iterator();; {
 }
 
 //ToSlice
-kvs := m.ToSlice()
-for entry := range kvs{
+for _, entry := range m.ToSlice(){
 	k, v := entry.Key(), entry.Value()
 }
 ```
