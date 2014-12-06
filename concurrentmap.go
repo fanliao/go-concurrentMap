@@ -68,7 +68,8 @@ type Hashable interface {
 }
 
 type hashEnginer struct {
-	putFunc func(w io.Writer, v interface{})
+	hash   func(w io.Writer, v interface{})
+	equals func(v1, v2 interface{}) bool
 }
 
 //segments is read-only, don't need synchronized
@@ -545,9 +546,9 @@ func (this *ConcurrentMap) parseKey(key interface{}) (err error) {
 					err = e
 					return
 				} else {
-					putF := getPutFunc(ki)
 					eng = &hashEnginer{}
-					eng.putFunc = putF
+					eng.hash = getHashFunc(ki)
+					eng.equals = getEqualsFunc(ki)
 				}
 			}
 		}
@@ -884,7 +885,7 @@ func (this *Segment) get(key interface{}, hash uint32) interface{} {
 	if atomic.LoadInt32(&this.count) != 0 { // atomic-read
 		e := this.getFirst(hash)
 		for e != nil {
-			if e.hash == hash && equals(e.key, key) {
+			if e.hash == hash && equals(e.key, key, this.m, true) {
 				v := e.Value()
 				if v != nil {
 					//return
@@ -902,7 +903,7 @@ func (this *Segment) containsKey(key interface{}, hash uint32) bool {
 	if atomic.LoadInt32(&this.count) != 0 { // read-volatile
 		e := this.getFirst(hash)
 		for e != nil {
-			if e.hash == hash && equals(e.key, key) {
+			if e.hash == hash && equals(e.key, key, this.m, true) {
 				return true
 			}
 			e = e.next
@@ -916,7 +917,7 @@ func (this *Segment) compareAndReplace(key interface{}, hash uint32, oldVal inte
 	defer this.lock.Unlock()
 
 	e := this.getFirst(hash)
-	for e != nil && (e.hash != hash || !equals(e.key, key)) {
+	for e != nil && (e.hash != hash || !equals(e.key, key, this.m, false)) {
 		e = e.next
 	}
 
@@ -932,7 +933,7 @@ func (this *Segment) replace(key interface{}, hash uint32, newVal interface{}) (
 	this.lock.Lock()
 	defer this.lock.Unlock()
 	e := this.getFirst(hash)
-	for e != nil && (e.hash != hash || !equals(e.key, key)) {
+	for e != nil && (e.hash != hash || !equals(e.key, key, this.m, false)) {
 		e = e.next
 	}
 
@@ -966,7 +967,7 @@ func (this *Segment) put(key interface{}, hash uint32, value interface{}, onlyIf
 	first := (*Entry)(tab[index])
 	e := first
 
-	for e != nil && (e.hash != hash || !equals(e.key, key)) {
+	for e != nil && (e.hash != hash || !equals(e.key, key, this.m, false)) {
 		e = e.next
 	}
 
@@ -1028,7 +1029,7 @@ func (this *Segment) remove(key interface{}, hash uint32, value interface{}) (ol
 	first := (*Entry)(tab[index])
 	e := first
 
-	for e != nil && (e.hash != hash || !equals(e.key, key)) {
+	for e != nil && (e.hash != hash || !equals(e.key, key, this.m, false)) {
 		e = e.next
 	}
 

@@ -37,89 +37,128 @@ var (
 	complex64Eng      *hashEnginer
 	complex128Eng     *hashEnginer
 	stringEng         *hashEnginer
-	engM              map[reflect.Kind]*hashEnginer
+	engMap            map[reflect.Kind]*hashEnginer
 )
 
 func init() {
 	hasherEng = &hashEnginer{
-		putFunc: func(w io.Writer, k interface{}) {
+		hash: func(w io.Writer, k interface{}) {
 			w.Write(k.(Hashable).HashBytes())
+		},
+		equals: func(v1, v2 interface{}) bool {
+			return v1.(Hashable).Equals(v2)
 		},
 	}
 	boolEng = &hashEnginer{
-		putFunc: func(w io.Writer, k interface{}) {
+		hash: func(w io.Writer, k interface{}) {
 			k1 := k.(bool)
 			w.Write((*((*[1]byte)(unsafe.Pointer(&k1))))[:])
 		},
+		equals: func(v1, v2 interface{}) bool {
+			return v1 == v2
+		},
 	}
 	intEng = &hashEnginer{
-		putFunc: func(w io.Writer, k interface{}) {
+		hash: func(w io.Writer, k interface{}) {
 			k1 := k.(int)
 			w.Write((*((*[intSize]byte)(unsafe.Pointer(&k1))))[:])
 		},
+		equals: func(v1, v2 interface{}) bool {
+			return v1 == v2
+		},
 	}
 	int8Eng = &hashEnginer{
-		putFunc: func(w io.Writer, k interface{}) {
+		hash: func(w io.Writer, k interface{}) {
 			k1 := k.(int8)
 			w.Write((*((*[1]byte)(unsafe.Pointer(&k1))))[:])
 		},
+		equals: func(v1, v2 interface{}) bool {
+			return v1 == v2
+		},
 	}
 	int16Eng = &hashEnginer{
-		putFunc: func(w io.Writer, k interface{}) {
+		hash: func(w io.Writer, k interface{}) {
 			k1 := k.(int16)
 			w.Write((*((*[2]byte)(unsafe.Pointer(&k1))))[:])
 		},
+		equals: func(v1, v2 interface{}) bool {
+			return v1 == v2
+		},
 	}
 	int32Eng = &hashEnginer{
-		putFunc: func(w io.Writer, k interface{}) {
+		hash: func(w io.Writer, k interface{}) {
 			k1 := k.(int32)
 			w.Write((*((*[4]byte)(unsafe.Pointer(&k1))))[:])
 		},
+		equals: func(v1, v2 interface{}) bool {
+			return v1 == v2
+		},
 	}
 	int64Eng = &hashEnginer{
-		putFunc: func(w io.Writer, k interface{}) {
+		hash: func(w io.Writer, k interface{}) {
 			k1 := k.(int64)
 			w.Write((*((*[8]byte)(unsafe.Pointer(&k1))))[:])
 		},
+		equals: func(v1, v2 interface{}) bool {
+			return v1 == v2
+		},
 	}
 	uintEng = &hashEnginer{
-		putFunc: func(w io.Writer, k interface{}) {
+		hash: func(w io.Writer, k interface{}) {
 			k1 := k.(uint)
 			w.Write((*((*[intSize]byte)(unsafe.Pointer(&k1))))[:])
 		},
+		equals: func(v1, v2 interface{}) bool {
+			return v1 == v2
+		},
 	}
 	uint8Eng = &hashEnginer{
-		putFunc: func(w io.Writer, k interface{}) {
+		hash: func(w io.Writer, k interface{}) {
 			k1 := k.(uint8)
 			w.Write((*((*[1]byte)(unsafe.Pointer(&k1))))[:])
 		},
+		equals: func(v1, v2 interface{}) bool {
+			return v1 == v2
+		},
 	}
 	uint16Eng = &hashEnginer{
-		putFunc: func(w io.Writer, k interface{}) {
+		hash: func(w io.Writer, k interface{}) {
 			k1 := k.(uint16)
 			w.Write((*((*[2]byte)(unsafe.Pointer(&k1))))[:])
 		},
+		equals: func(v1, v2 interface{}) bool {
+			return v1 == v2
+		},
 	}
 	uint32Eng = &hashEnginer{
-		putFunc: func(w io.Writer, k interface{}) {
+		hash: func(w io.Writer, k interface{}) {
 			k1 := k.(uint32)
 			w.Write((*((*[4]byte)(unsafe.Pointer(&k1))))[:])
 		},
+		equals: func(v1, v2 interface{}) bool {
+			return v1 == v2
+		},
 	}
 	uint64Eng = &hashEnginer{
-		putFunc: func(w io.Writer, k interface{}) {
+		hash: func(w io.Writer, k interface{}) {
 			k1 := k.(uint64)
 			w.Write((*((*[8]byte)(unsafe.Pointer(&k1))))[:])
 		},
+		equals: func(v1, v2 interface{}) bool {
+			return v1 == v2
+		},
 	}
 	uintptrEng = &hashEnginer{
-		putFunc: func(w io.Writer, k interface{}) {
+		hash: func(w io.Writer, k interface{}) {
 			k1 := k.(uintptr)
 			w.Write((*((*[intSize]byte)(unsafe.Pointer(&k1))))[:])
 		},
+		equals: func(v1, v2 interface{}) bool {
+			return v1 == v2
+		},
 	}
 	float32Eng = &hashEnginer{
-		putFunc: func(w io.Writer, k interface{}) {
+		hash: func(w io.Writer, k interface{}) {
 			k1 := k.(float32)
 			//Nan != Nan, so use a rand number to generate hash code
 			if k1 != k1 {
@@ -127,9 +166,12 @@ func init() {
 			}
 			w.Write((*((*[4]byte)(unsafe.Pointer(&k1))))[:])
 		},
+		equals: func(v1, v2 interface{}) bool {
+			return v1 == v2
+		},
 	}
 	float64Eng = &hashEnginer{
-		putFunc: func(w io.Writer, k interface{}) {
+		hash: func(w io.Writer, k interface{}) {
 			k1 := k.(float64)
 			//Nan != Nan, so use a rand number to generate hash code
 			if k1 != k1 {
@@ -137,26 +179,38 @@ func init() {
 			}
 			w.Write((*((*[8]byte)(unsafe.Pointer(&k1))))[:])
 		},
+		equals: func(v1, v2 interface{}) bool {
+			return v1 == v2
+		},
 	}
 	complex64Eng = &hashEnginer{
-		putFunc: func(w io.Writer, k interface{}) {
+		hash: func(w io.Writer, k interface{}) {
 			k1 := k.(complex64)
 			w.Write((*((*[8]byte)(unsafe.Pointer(&k1))))[:])
 		},
+		equals: func(v1, v2 interface{}) bool {
+			return v1 == v2
+		},
 	}
 	complex128Eng = &hashEnginer{
-		putFunc: func(w io.Writer, k interface{}) {
+		hash: func(w io.Writer, k interface{}) {
 			k1 := k.(complex128)
 			w.Write((*((*[128]byte)(unsafe.Pointer(&k1))))[:])
 		},
+		equals: func(v1, v2 interface{}) bool {
+			return v1 == v2
+		},
 	}
 	stringEng = &hashEnginer{
-		putFunc: func(w io.Writer, k interface{}) {
+		hash: func(w io.Writer, k interface{}) {
 			k1 := k.(string)
 			w.Write([]byte(k1))
 		},
+		equals: func(v1, v2 interface{}) bool {
+			return v1 == v2
+		},
 	}
-	engM = map[reflect.Kind]*hashEnginer{
+	engMap = map[reflect.Kind]*hashEnginer{
 		reflect.Bool:       boolEng,
 		reflect.Int:        intEng,
 		reflect.Int8:       int8Eng,
@@ -250,10 +304,10 @@ func hashKey(key interface{}, m *ConcurrentMap, isRead bool) (hashCode uint32, e
 			}
 			if isRead {
 				eng := (*hashEnginer)(atomic.LoadPointer(&m.eng))
-				eng.putFunc(h, key)
+				eng.hash(h, key)
 			} else {
 				eng := (*hashEnginer)(m.eng)
-				eng.putFunc(h, key)
+				eng.hash(h, key)
 			}
 			hashCode = h.Sum32()
 		}
@@ -261,167 +315,36 @@ func hashKey(key interface{}, m *ConcurrentMap, isRead bool) (hashCode uint32, e
 	return
 }
 
-////hash a interface using FNVa
-//func hashI(val interface{}) (hashCode uint32) {
-//	h := fnv.New32a()
-//	switch v := val.(type) {
-//	case bool:
-//		h.Write((*((*[1]byte)(unsafe.Pointer(&v))))[:])
-//		hashCode = h.Sum32()
-//	case int:
-//		h.Write((*((*[intSize]byte)(unsafe.Pointer(&v))))[:])
-//		hashCode = h.Sum32()
-//	case int8:
-//		h.Write((*((*[1]byte)(unsafe.Pointer(&v))))[:])
-//		hashCode = h.Sum32()
-//	case int16:
-//		h.Write((*((*[2]byte)(unsafe.Pointer(&v))))[:])
-//		hashCode = h.Sum32()
-//	case int32:
-//		h.Write((*((*[4]byte)(unsafe.Pointer(&v))))[:])
-//		hashCode = h.Sum32()
-//	case int64:
-//		h.Write((*((*[8]byte)(unsafe.Pointer(&v))))[:])
-//		hashCode = h.Sum32()
-//	case uint:
-//		h.Write((*((*[1]byte)(unsafe.Pointer(&v))))[:])
-//		hashCode = h.Sum32()
-//	case uint8:
-//		h.Write((*((*[intSize]byte)(unsafe.Pointer(&v))))[:])
-//		hashCode = h.Sum32()
-//	case uint16:
-//		h.Write((*((*[2]byte)(unsafe.Pointer(&v))))[:])
-//		hashCode = h.Sum32()
-//	case uint32:
-//		h.Write((*((*[4]byte)(unsafe.Pointer(&v))))[:])
-//		hashCode = h.Sum32()
-//	case uint64:
-//		h.Write((*((*[8]byte)(unsafe.Pointer(&v))))[:])
-//		hashCode = h.Sum32()
-//	case uintptr:
-//		h.Write((*((*[intSize]byte)(unsafe.Pointer(&v))))[:])
-//		hashCode = h.Sum32()
-//	case float32:
-//		//Nan != Nan, so use a rand number to generate hash code
-//		if v != v {
-//			v = rand.Float32()
-//		}
-//		h.Write((*((*[4]byte)(unsafe.Pointer(&v))))[:])
-//		hashCode = h.Sum32()
-//	case float64:
-//		//Nan != Nan, so use a rand number to generate hash code
-//		if v != v {
-//			v = rand.Float64()
-//		}
-//		h.Write((*((*[8]byte)(unsafe.Pointer(&v))))[:])
-//		hashCode = h.Sum32()
-//	case complex64:
-//		h.Write((*((*[8]byte)(unsafe.Pointer(&v))))[:])
-//		hashCode = h.Sum32()
-//	case complex128:
-//		h.Write((*((*[128]byte)(unsafe.Pointer(&v))))[:])
-//		hashCode = h.Sum32()
-//	case string:
-//		h.Write([]byte(v))
-//		hashCode = h.Sum32()
-//	default:
-//		//some types can be used as key, we can use equals to test
-//		_ = val == val
+func equals(k1, k2 interface{}, m *ConcurrentMap, isRead bool) bool {
+	//if h1, ok := k1.(Hashable); ok {
+	//	return h1.Equals(k2)
+	//} else {
+	//	return k1 == k2
+	//}
 
-//		//support array, struct, channel, interface, pointer
-//		//don't support slice, function, map
-//		rv := reflect.ValueOf(val)
-//		switch rv.Kind() {
-//		case reflect.Ptr:
-//			//ei.word stores the memory address of value that v points to, we use address to generate hash code
-//			ei := (*emptyInterface)(unsafe.Pointer(&val))
-//			hashCode = hashI(uintptr(ei.word))
-//		case reflect.Interface:
-//			//for interface, we use contained value to generate the hash code
-//			hashCode = hashI(rv.Elem())
-//		default:
-//			//for array, struct and chan, will get byte array to calculate the hash code
-//			hashMem(rv, h)
-//			hashCode = h.Sum32()
-//			fmt.Println("array, struct or chan", rv.Interface(), hashCode, reflect.ValueOf(rv).Type().Size())
-//		}
-//	}
-//	return
-//}
-
-////hashMem writes byte array of underlying value to hash function
-//func hashMem(i interface{}, hashFunc hash.Hash32) {
-//	fmt.Println("hashMem")
-//	size := reflect.ValueOf(i).Type().Size()
-//	ei := (*emptyInterface)(unsafe.Pointer(&i))
-
-//	//if size of underlying value is greater than pointer size, ei.word will store the pointer that point to underlying value
-//	//else ei.word will store underlying value
-//	if size > ptrSize {
-//		addr := ei.word
-//		hashPtrData(unsafe.Pointer(uintptr(addr)), size, hashFunc)
-//	} else {
-//		data := ei.word
-//		fmt.Println("hashData", uintptr(data), size, ptrSize)
-//		hashData(uintptr(data), size, hashFunc)
-//	}
-//	return
-//}
-
-//func hashPtrData(basePtr unsafe.Pointer, size uintptr, hashFunc hash.Hash32) {
-//	offset := uintptr(0)
-//	for {
-//		/* cannot store unsafe.Pointer in an uintptr according to https://groups.google.com/forum/#!topic/golang-dev/bfMdPAQigfM
-//		 * but the expression
-//		 *     unsafe.Pointer(uintptr(basePtr) + offset)
-//		 * is safe under Go 1.3
-//		 */
-//		//d := uintptr(basePtr) + offset
-//		//ptr := unsafe.Pointer(d)
-//		ptr := unsafe.Pointer(uintptr(basePtr) + offset)
-
-//		if size >= 32 {
-//			bytes := *(*[32]byte)(ptr)
-//			size -= 32
-//			offset += 32
-//			fmt.Println("hashPtrData", ptr, bytes[:])
-//			hashFunc.Write(bytes[:])
-//		} else if size >= 16 {
-//			bytes := *(*[16]byte)(ptr)
-//			size -= 16
-//			offset += 16
-//			hashFunc.Write(bytes[:])
-//		} else if size >= 8 {
-//			bytes := *(*[8]byte)(ptr)
-//			size -= 8
-//			offset += 8
-//			hashFunc.Write(bytes[:])
-//		} else if size >= 4 {
-//			bytes := *(*[4]byte)(ptr)
-//			size -= 4
-//			offset += 4
-//			hashFunc.Write(bytes[:])
-//		} else if size >= 2 {
-//			bytes := *(*[2]byte)(ptr)
-//			size -= 2
-//			offset += 2
-//			hashFunc.Write(bytes[:])
-//		} else if size == 1 {
-//			bytes := *(*[1]byte)(ptr)
-//			hashFunc.Write(bytes[:])
-//			return
-//		}
-//		if size == 0 {
-//			return
-//		}
-//	}
-//}
-
-//func hashData(data uintptr, size uintptr, hashFunc hash.Hash32) {
-//	bytes := (*((*[ptrSize]byte)(unsafe.Pointer(&data))))
-//	hashFunc.Write(bytes[0:size])
-//	return
-//}
+	switch v := k1.(type) {
+	case bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64,
+		uintptr, float32, float64, complex64, complex128, string:
+		_ = v
+		return k1 == k2
+	default:
+		//if key is not simple type
+		if h1, ok := k1.(Hashable); ok {
+			return h1.Equals(k2)
+		} else {
+			if err := m.parseKey(k1); err != nil {
+				return false
+			}
+			if isRead {
+				eng := (*hashEnginer)(atomic.LoadPointer(&m.eng))
+				return eng.equals(k1, k2)
+			} else {
+				eng := (*hashEnginer)(m.eng)
+				return eng.equals(k1, k2)
+			}
+		}
+	}
+}
 
 func isNil(v interface{}) bool {
 	if v == nil {
@@ -438,14 +361,9 @@ func isNil(v interface{}) bool {
 	}
 }
 
-//// emptyInterface is the header for an interface{} value.
-//type emptyInterface struct {
-//	typ  uintptr
-//	word unsafe.Pointer
-//}
-
 type keyInfo struct {
-	isHasher bool
+	isHasher      bool
+	includeHasher bool
 	/*-- kind of key type --*/
 	kind reflect.Kind
 	/*-- index of field if it is a field of struct --*/
@@ -463,7 +381,7 @@ func getKeyInfo(t reflect.Type) (ki *keyInfo, err error) {
 }
 
 //获取t对应的类型信息，不支持slice, function, map, pointer, interface, channel
-//如果parentIdx的长度>0，则表示t是strut中的字段的类型信息, t为字段对应的类型
+//如果parentIdx的长度>0，则表示t是strut中的字段的类型信息
 func getKeyInfoByParent(t reflect.Type, parent *keyInfo, parentIdx []int) (ki *keyInfo, err error) {
 	ki = &keyInfo{}
 	//判断是否实现了hasher接口
@@ -473,20 +391,21 @@ func getKeyInfoByParent(t reflect.Type, parent *keyInfo, parentIdx []int) (ki *k
 	}
 	ki.kind = t.Kind()
 
-	if _, ok := engM[ki.kind]; ok {
-		//简单类型，不需要再分解元素类型的信息
+	if _, ok := engMap[ki.kind]; ok {
+		//simple types
 		ki.index = parentIdx
 	} else {
-		//some types can be used as key, we can use equals to test
+		//some types can be used as key
 		switch ki.kind {
 		case reflect.Chan, reflect.Slice, reflect.Func, reflect.Map, reflect.Ptr, reflect.Interface:
 			err = NonSupportKey
 		case reflect.Struct:
 			if parent == nil {
-				//parent==nil表示t不是一个嵌套的struct，所以这里需要初始化fields
+				//parent==nil present t is a top struct
 				parent = ki
 				ki.fields = make([]*keyInfo, 0, t.NumField())
 			}
+
 			for i := 0; i < t.NumField(); i++ {
 				f := t.Field(i)
 				//skip unexported field,
@@ -502,6 +421,9 @@ func getKeyInfoByParent(t reflect.Type, parent *keyInfo, parentIdx []int) (ki *k
 					return
 				} else {
 					//fi.index = i
+					if fi.includeHasher || fi.isHasher {
+						parent.includeHasher = true
+					}
 					parent.fields = append(ki.fields, fi)
 				}
 			}
@@ -518,51 +440,100 @@ func getKeyInfoByParent(t reflect.Type, parent *keyInfo, parentIdx []int) (ki *k
 
 }
 
-func getPutFunc(ki *keyInfo) func(w io.Writer, k interface{}) {
+func getHashFunc(ki *keyInfo) func(w io.Writer, k interface{}) {
 	if ki.isHasher {
-		return hasherEng.putFunc
+		return hasherEng.hash
 	}
 
 	//Printf("getPutFunc, ki = %v\n", ki)
-	if eng, ok := engM[ki.kind]; ok {
-		return eng.putFunc
+	if eng, ok := engMap[ki.kind]; ok {
+		return eng.hash
 	} else {
 		if ki.kind == reflect.Struct {
 			//Printf("getPutFunc, ki = %v, other case\n", ki)
-			putFunc := func(w io.Writer, k interface{}) {
+			hashFunc := func(w io.Writer, k interface{}) {
 				rv := reflect.ValueOf(k)
 				for _, fieldInfo := range ki.fields {
 					//深度遍历每个field，并将其[]byte写入hash函数
-					putF := getPutFunc(fieldInfo)
+					hashF := getHashFunc(fieldInfo)
 					//Printf("getPutFunc, ki = %#v, fieldInfo = %#v, %#v\n", ki, fieldInfo, rv.Interface())
 					//Printf("getPutFunc, value = %v\n", rv.FieldByIndex(fieldInfo.index).Interface())
-					putF(w, rv.FieldByIndex(fieldInfo.index).Interface())
+					hashF(w, rv.FieldByIndex(fieldInfo.index).Interface())
 				}
 			}
 			//Printf("getPutFunc, ki=%v, putFunc = %v, other case\n", ki, putFunc)
-			return putFunc
+			return hashFunc
 		} else if ki.kind == reflect.Array {
-			putFunc := func(w io.Writer, k interface{}) {
+			hashFunc := func(w io.Writer, k interface{}) {
 				rv := reflect.ValueOf(k)
-				putF := getPutFunc(ki.elementInfo)
+				hashF := getHashFunc(ki.elementInfo)
 				for i := 0; i < ki.size; i++ {
 					//遍历数组元素，并将其[]byte写入hash函数
-					putF(w, rv.Index(i).Interface())
+					hashF(w, rv.Index(i).Interface())
 				}
 			}
-			return putFunc
+			return hashFunc
 		}
 		Printf("getPutFunc, return nil")
 	}
 	return nil
 }
 
-func equals(k1, k2 interface{}) bool {
-	if h1, ok := k1.(Hashable); ok {
-		return h1.Equals(k2)
-	} else {
-		return k1 == k2
+func getEqualsFunc(ki *keyInfo) func(v1, v2 interface{}) bool {
+	if ki.isHasher {
+		return hasherEng.equals
 	}
+
+	//Printf("getPutFunc, ki = %v\n", ki)
+	if eng, ok := engMap[ki.kind]; ok {
+		return eng.equals
+	} else {
+		if ki.kind == reflect.Struct {
+			if !ki.includeHasher {
+				return func(v1, v2 interface{}) bool {
+					return v1 == v2
+				}
+			}
+
+			//Printf("getPutFunc, ki = %v, other case\n", ki)
+			equalsFunc := func(v1, v2 interface{}) bool {
+				rv1, rv2 := reflect.ValueOf(v1), reflect.ValueOf(v2)
+				for _, fieldInfo := range ki.fields {
+					//深度遍历每个field，比较每个field的值
+					equalsF := getEqualsFunc(fieldInfo)
+					//Printf("getPutFunc, value = %v\n", rv.FieldByIndex(fieldInfo.index).Interface())
+					if !equalsF(rv1.FieldByIndex(fieldInfo.index).Interface(),
+						rv2.FieldByIndex(fieldInfo.index).Interface()) {
+						return false
+					}
+				}
+				return true
+			}
+			//Printf("getPutFunc, ki=%v, putFunc = %v, other case\n", ki, putFunc)
+			return equalsFunc
+		} else if ki.kind == reflect.Array {
+			if !(ki.elementInfo.isHasher || ki.elementInfo.includeHasher) {
+				return func(v1, v2 interface{}) bool {
+					return v1 == v2
+				}
+			}
+
+			equalsFunc := func(v1, v2 interface{}) bool {
+				rv1, rv2 := reflect.ValueOf(v1), reflect.ValueOf(v2)
+				equalsF := getEqualsFunc(ki.elementInfo)
+				for i := 0; i < ki.size; i++ {
+					//比较每个数组元素
+					if !equalsF(rv1.Index(i).Interface(), rv2.Index(i).Interface()) {
+						return false
+					}
+				}
+				return true
+			}
+			return equalsFunc
+		}
+		Printf("getequalsFunc, return nil")
+	}
+	return nil
 }
 
 func Printf(format string, a ...interface{}) (n int, err error) {

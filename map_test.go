@@ -357,7 +357,7 @@ func TestUpdate(t *testing.T) {
 	if old == nil || err != nil {
 		t.Errorf("Update %v, nil, return %#v, %v, want %v, nil", u3.Name, old, err, u3)
 	}
-	
+
 	//Getting value by "stone" returns nil
 	v, err = cm.Get(u3.Name)
 	if v != nil || err != nil {
@@ -974,7 +974,7 @@ func TestConcurrent(t *testing.T) {
 	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(numCpu))
 	writeN := 2*numCpu + 1
 	readN := 3*numCpu + 1
-	n := 1000000
+	n := 100000
 	var repeat int32 = 0
 
 	wWg := new(sync.WaitGroup)
