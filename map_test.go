@@ -203,8 +203,9 @@ func TestEmptyInterface(t *testing.T) {
 
 //user implements concurrent.Hasher interface
 type user struct {
-	id   string
-	Name string
+	id    string
+	Name  string
+	props []string
 }
 
 func (u *user) HashBytes() []byte {
@@ -217,7 +218,7 @@ func (u *user) Equals(v2 interface{}) (equal bool) {
 
 //test Hasher interface
 func TestHasherKey(t *testing.T) {
-	a, b, c, d := &user{"1", "n1"}, &user{"2", "n2"}, &user{"3", "n3"}, &user{"4", "n4"}
+	a, b, c, d := &user{"1", "n1", make([]string, 1)}, &user{"2", "n2", make([]string, 1)}, &user{"3", "n3", make([]string, 1)}, &user{"4", "n4", make([]string, 1)}
 	testConcurrentMap(t, map[interface{}]interface{}{
 		a: 10,
 		b: 20,
@@ -228,7 +229,38 @@ func TestHasherKey(t *testing.T) {
 	cm := NewConcurrentMap()
 	cm.Put(a, 10)
 
-	e := &user{"1", "n1"}
+	e := &user{"1", "n111", make([]string, 1)}
+	if v, err := cm.Get(e); v != 10 || err != nil {
+		t.Errorf("Get %v, return %v, %v, want %v", &e, v, err, 10)
+	}
+}
+
+type structIncludeUser struct {
+	email string
+	u     *user
+}
+
+//test Hasher interface
+func TestStructIncludesHasherKey(t *testing.T) {
+	aa := structIncludeUser{"email1", &user{"1", "n1", make([]string, 1)}}
+	ut := reflect.ValueOf(aa).FieldByName("u").Type()
+	fmt.Println(ut.Name(), " , ", ut, " , ", ut.Implements(hasherT))
+
+	a, b, c, d := structIncludeUser{"email1", &user{"1", "n1", make([]string, 1)}},
+		structIncludeUser{"email2", &user{"2", "n2", make([]string, 1)}},
+		structIncludeUser{"email3", &user{"3", "n3", make([]string, 1)}},
+		structIncludeUser{"email4", &user{"4", "n4", make([]string, 1)}}
+	testConcurrentMap(t, map[interface{}]interface{}{
+		a: 10,
+		b: 20,
+		c: 30,
+		d: 40,
+	})
+
+	cm := NewConcurrentMap()
+	cm.Put(a, 10)
+
+	e := structIncludeUser{"email1", &user{"1", "n111", make([]string, 1)}}
 	if v, err := cm.Get(e); v != 10 || err != nil {
 		t.Errorf("Get %v, return %v, %v, want %v", &e, v, err, 10)
 	}

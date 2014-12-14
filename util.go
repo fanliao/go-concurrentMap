@@ -456,8 +456,6 @@ func getHashFunc(ki *keyInfo) func(w io.Writer, k interface{}) {
 				for _, fieldInfo := range ki.fields {
 					//深度遍历每个field，并将其[]byte写入hash函数
 					hashF := getHashFunc(fieldInfo)
-					//Printf("getPutFunc, ki = %#v, fieldInfo = %#v, %#v\n", ki, fieldInfo, rv.Interface())
-					//Printf("getPutFunc, value = %v\n", rv.FieldByIndex(fieldInfo.index).Interface())
 					hashF(w, rv.FieldByIndex(fieldInfo.index).Interface())
 				}
 			}

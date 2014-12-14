@@ -541,11 +541,14 @@ func (this *ConcurrentMap) parseKey(key interface{}) (err error) {
 				//some types can be used as key, we can use equals to test
 				//_ = val == val
 
+				//fmt.Println("begin get of val:", val)
 				rv := reflect.ValueOf(val)
 				if ki, e := getKeyInfo(rv.Type()); e != nil {
+					//fmt.Println("parseKey get e:", e)
 					err = e
 					return
 				} else {
+					//fmt.Println("ki:", ki)
 					eng = &hashEnginer{}
 					eng.hash = getHashFunc(ki)
 					eng.equals = getEqualsFunc(ki)
@@ -555,7 +558,7 @@ func (this *ConcurrentMap) parseKey(key interface{}) (err error) {
 
 		this.eng = unsafe.Pointer(eng)
 
-		Printf("key = %v, eng=%v, %v\n", key, this.eng, eng)
+		//Printf("key = %v, eng=%v, %v\n", key, this.eng, eng)
 	})
 	return
 }
