@@ -236,16 +236,12 @@ func TestHasherKey(t *testing.T) {
 }
 
 type structIncludeUser struct {
-	email string
-	u     *user
+	Email string
+	User  *user
 }
 
 //test Hasher interface
 func TestStructIncludesHasherKey(t *testing.T) {
-	aa := structIncludeUser{"email1", &user{"1", "n1", make([]string, 1)}}
-	ut := reflect.ValueOf(aa).FieldByName("u").Type()
-	fmt.Println(ut.Name(), " , ", ut, " , ", ut.Implements(hasherT))
-
 	a, b, c, d := structIncludeUser{"email1", &user{"1", "n1", make([]string, 1)}},
 		structIncludeUser{"email2", &user{"2", "n2", make([]string, 1)}},
 		structIncludeUser{"email3", &user{"3", "n3", make([]string, 1)}},
@@ -843,8 +839,8 @@ func TestEmptyKeyAndValue(t *testing.T) {
 	if a.Size() != 1 { // len(a) != 1 {
 		t.Errorf("empty value insert problem")
 	}
-	if v, err := b.Get(empty{}); v != 1 || err != nil { //} b[empty{}] != 1 {
-		t.Errorf("empty key returned wrong value")
+	if _, err := b.Get(empty{}); err == nil { //} b[empty{}] != 1 {
+		t.Errorf("Get/put empty key has not returned error")
 	}
 }
 

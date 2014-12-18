@@ -215,8 +215,8 @@ func (this *ConcurrentMap) Get(key interface{}) (value interface{}, err error) {
 	if hash, e := hashKey(key, this, false); e != nil {
 		err = e
 	} else {
-		Printf("Get, %v, %v\n", key, hash)
 		value = this.segmentFor(hash).get(key, hash)
+		Printf("Get, %v, %v, %v\n", key, hash, value)
 	}
 	return
 }
@@ -272,7 +272,7 @@ func (this *ConcurrentMap) Put(key interface{}, value interface{}) (oldVal inter
 	if hash, e := hashKey(key, this, false); e != nil {
 		err = e
 	} else {
-		Printf("Put, %v, %v\n", key, hash)
+		Printf("Put, %v, %v, %v\n", key, hash, value)
 		oldVal = this.segmentFor(hash).put(key, hash, value, false, nil)
 	}
 	//hash := hash2(hashKey(key, this, true))
@@ -544,11 +544,11 @@ func (this *ConcurrentMap) parseKey(key interface{}) (err error) {
 				//fmt.Println("begin get of val:", val)
 				rv := reflect.ValueOf(val)
 				if ki, e := getKeyInfo(rv.Type()); e != nil {
-					//fmt.Println("parseKey get e:", e)
 					err = e
 					return
+				} else if ki == nil {
+					err = NonSupportKey
 				} else {
-					//fmt.Println("ki:", ki)
 					eng = &hashEnginer{}
 					eng.hash = getHashFunc(ki)
 					eng.equals = getEqualsFunc(ki)
@@ -863,6 +863,7 @@ func (this *Segment) table() []unsafe.Pointer {
  */
 func (this *Segment) getFirst(hash uint32) *Entry {
 	tab := this.loadTable()
+	Printf("getFirst, index=%v, hash=%v\n", hash&uint32(len(tab)-1), hash)
 	return (*Entry)(atomic.LoadPointer(&tab[hash&uint32(len(tab)-1)]))
 }
 
@@ -887,9 +888,11 @@ func (this *Segment) readValueUnderLock(e *Entry) interface{} {
 func (this *Segment) get(key interface{}, hash uint32) interface{} {
 	if atomic.LoadInt32(&this.count) != 0 { // atomic-read
 		e := this.getFirst(hash)
+		Printf("get, e=%v, hash=%v\n", e, hash)
 		for e != nil {
 			if e.hash == hash && equals(e.key, key, this.m, true) {
 				v := e.Value()
+				Printf("get value, e=%v, hash=%v, v=%v\n", e, hash, v)
 				if v != nil {
 					//return
 					return v
@@ -985,6 +988,7 @@ func (this *Segment) put(key interface{}, hash uint32, value interface{}, onlyIf
 			oldValue = nil
 			this.modCount++
 			tab[index] = unsafe.Pointer(&Entry{key, hash, unsafe.Pointer(&value), first})
+			Printf("put, index=%v, hash=%v, value=%v\n", index, hash, value)
 			atomic.StoreInt32(&this.count, c) // atomic write 这里可以保证对modCount和tab的修改不会被reorder到this.count之后
 		}
 	} else {

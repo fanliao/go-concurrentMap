@@ -298,17 +298,23 @@ func hashKey(key interface{}, m *ConcurrentMap, isRead bool) (hashCode uint32, e
 		//if key is not simple type
 		if her, ok := key.(Hashable); ok {
 			h.Write(her.HashBytes())
+			hashCode = h.Sum32()
 		} else {
 			if err = m.parseKey(key); err != nil {
 				return
 			}
+			var eng *hashEnginer
 			if isRead {
-				eng := (*hashEnginer)(atomic.LoadPointer(&m.eng))
-				eng.hash(h, key)
+				eng = (*hashEnginer)(atomic.LoadPointer(&m.eng))
 			} else {
-				eng := (*hashEnginer)(m.eng)
-				eng.hash(h, key)
+				eng = (*hashEnginer)(m.eng)
 			}
+
+			if eng == nil {
+				err = NonSupportKey
+				return
+			}
+			eng.hash(h, key)
 			hashCode = h.Sum32()
 		}
 	}
@@ -386,6 +392,7 @@ func getKeyInfoByParent(t reflect.Type, parent *keyInfo, parentIdx []int) (ki *k
 	ki = &keyInfo{}
 	//判断是否实现了hasher接口
 	if t.Implements(hasherT) {
+		ki.index = parentIdx
 		ki.isHasher = true
 		return
 	}
@@ -395,6 +402,7 @@ func getKeyInfoByParent(t reflect.Type, parent *keyInfo, parentIdx []int) (ki *k
 		//simple types
 		ki.index = parentIdx
 	} else {
+		Printf("t=%s, ki.kind=%s\r\n", t.String(), ki.kind)
 		//some types can be used as key
 		switch ki.kind {
 		case reflect.Chan, reflect.Slice, reflect.Func, reflect.Map, reflect.Ptr, reflect.Interface:
@@ -406,6 +414,7 @@ func getKeyInfoByParent(t reflect.Type, parent *keyInfo, parentIdx []int) (ki *k
 				ki.fields = make([]*keyInfo, 0, t.NumField())
 			}
 
+			publicFieldFound := false
 			for i := 0; i < t.NumField(); i++ {
 				f := t.Field(i)
 				//skip unexported field,
@@ -413,13 +422,20 @@ func getKeyInfoByParent(t reflect.Type, parent *keyInfo, parentIdx []int) (ki *k
 					continue
 				}
 
+				publicFieldFound = true
 				idx := make([]int, len(parentIdx), len(parentIdx)+1)
 				copy(idx, parentIdx)
 				idx = append(idx, i)
+
+				Printf("get key info, parent=%v, idx=%v, name=%v, type=%v\n", parent, idx, f.Name, f.Type)
 				if fi, e := getKeyInfoByParent(f.Type, parent, idx); e != nil {
 					err = e
 					return
 				} else {
+					//if struct has no public fields, fi will be nil. so will skip it.
+					if fi == nil {
+						continue
+					}
 					//fi.index = i
 					if fi.includeHasher || fi.isHasher {
 						parent.includeHasher = true
@@ -427,12 +443,20 @@ func getKeyInfoByParent(t reflect.Type, parent *keyInfo, parentIdx []int) (ki *k
 					parent.fields = append(ki.fields, fi)
 				}
 			}
+			if !publicFieldFound {
+				ki = nil
+			}
 		case reflect.Array:
 			if ki.elementInfo, err = getKeyInfo(t.Elem()); err != nil {
 				return
 			}
-			ki.size = t.Len()
-			ki.index = parentIdx
+
+			if ki.elementInfo == nil {
+				ki = nil
+			} else {
+				ki.size = t.Len()
+				ki.index = parentIdx
+			}
 		}
 	}
 
@@ -455,8 +479,14 @@ func getHashFunc(ki *keyInfo) func(w io.Writer, k interface{}) {
 				rv := reflect.ValueOf(k)
 				for _, fieldInfo := range ki.fields {
 					//深度遍历每个field，并将其[]byte写入hash函数
-					hashF := getHashFunc(fieldInfo)
-					hashF(w, rv.FieldByIndex(fieldInfo.index).Interface())
+					Printf("getHashFunc get val, len of fields:%v, fieldInfo:%v, index:%v, String:%v, value:%v\n",
+						len(ki.fields),
+						fieldInfo,
+						fieldInfo.index,
+						rv.FieldByIndex(fieldInfo.index).String(),
+						rv.FieldByIndex(fieldInfo.index).Interface())
+					hashF, val := getHashFunc(fieldInfo), rv.FieldByIndex(fieldInfo.index).Interface()
+					hashF(w, val)
 				}
 			}
 			//Printf("getPutFunc, ki=%v, putFunc = %v, other case\n", ki, putFunc)
@@ -493,18 +523,22 @@ func getEqualsFunc(ki *keyInfo) func(v1, v2 interface{}) bool {
 				}
 			}
 
-			//Printf("getPutFunc, ki = %v, other case\n", ki)
+			Printf("getPutFunc, ki = %v, other case\n", ki)
 			equalsFunc := func(v1, v2 interface{}) bool {
 				rv1, rv2 := reflect.ValueOf(v1), reflect.ValueOf(v2)
 				for _, fieldInfo := range ki.fields {
 					//深度遍历每个field，比较每个field的值
 					equalsF := getEqualsFunc(fieldInfo)
-					//Printf("getPutFunc, value = %v\n", rv.FieldByIndex(fieldInfo.index).Interface())
+
 					if !equalsF(rv1.FieldByIndex(fieldInfo.index).Interface(),
 						rv2.FieldByIndex(fieldInfo.index).Interface()) {
+						Printf("getEqualsFunc return no equals, f1 = %v, f2 = %v\n",
+							rv1.FieldByIndex(fieldInfo.index).Interface(), rv2.FieldByIndex(fieldInfo.index).Interface())
 						return false
 					}
 				}
+				Printf("getEqualsFunc return equals, v1 = %v, v2 = %v\n",
+					v1, v2)
 				return true
 			}
 			//Printf("getPutFunc, ki=%v, putFunc = %v, other case\n", ki, putFunc)
