@@ -244,6 +244,7 @@ func hashKey(key interface{}, m *ConcurrentMap, isRead bool) (hashCode uint32, e
 		//if key is not simple type
 		if her, ok := key.(Hashable); ok {
 			h.Write(her.HashBytes())
+			hashCode = h.Sum32()
 		} else {
 			if err = m.parseKey(key); err != nil {
 				return
